@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ZaloCRM Bridge — Admin</title>
+  <style>
+    :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --fg:#e7e9ee; --mut:#9aa3b2; --acc:#4f8cff; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+    .wrap { max-width:880px; margin:0 auto; padding:24px 16px; }
+    h1 { font-size:20px; margin:0 0 16px; }
+    h2 { font-size:16px; margin:24px 0 12px; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+    label { display:block; font-size:13px; color:var(--mut); margin:10px 0 4px; }
+    input, select { width:100%; padding:9px 10px; background:#11141a; border:1px solid var(--line); border-radius:7px; color:var(--fg); }
+    button { padding:9px 14px; border:0; border-radius:7px; background:var(--acc); color:#fff; cursor:pointer; font-weight:600; }
+    button.sec { background:#2a2f3a; }
+    button.danger { background:#7a2230; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .mut { color:var(--mut); font-size:13px; }
+    .acct { border-top:1px solid var(--line); padding:12px 0; }
+    .hidden { display:none; }
+    .topbar { display:flex; justify-content:space-between; align-items:center; }
+    .msg { margin-top:8px; font-size:13px; }
+    .msg.err { color:#ff6b6b; } .msg.ok { color:#52c785; }
+    .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap; }
+    .badge.ok { background:rgba(82,199,133,.16); color:#52c785; }
+    .badge.warn { background:rgba(240,180,70,.16); color:#f0b446; }
+    .badge.off { background:rgba(154,163,178,.16); color:#9aa3b2; }
+    .badge.err { background:rgba(255,107,107,.16); color:#ff6b6b; }
+    .badge.info { background:rgba(79,140,255,.16); color:#4f8cff; }
+    table.logs { width:100%; border-collapse:collapse; font-size:13px; }
+    table.logs th, table.logs td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+    table.logs tr.lvl-warn { background:rgba(240,180,70,.06); }
+    table.logs tr.lvl-err { background:rgba(255,107,107,.07); }
+    .logctx { white-space:pre-wrap; word-break:break-word; color:var(--mut); margin:4px 0 0; font-size:12px; }
+    .cfg-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .acct-name { font-size:15px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <h1>ZaloCRM Bridge — Admin</h1>
+      <button id="logoutBtn" class="sec hidden" onclick="logout()">Đăng xuất</button>
+    </div>
+
+    <div id="setupView" class="card hidden">
+      <h2>Tạo tài khoản admin</h2>
+      <p class="mut">Chưa có admin nào. Đặt tài khoản đầu tiên để quản trị bridge.</p>
+      <label>Tên đăng nhập</label><input id="su_user" autocomplete="username" />
+      <label>Mật khẩu (≥ 8 ký tự)</label><input id="su_pass" type="password" autocomplete="new-password" />
+      <div style="margin-top:12px"><button onclick="doSetup()">Tạo & đăng nhập</button></div>
+      <div id="setupMsg" class="msg"></div>
+    </div>
+
+    <div id="loginView" class="card hidden">
+      <h2>Đăng nhập</h2>
+      <label>Tên đăng nhập</label><input id="li_user" autocomplete="username" />
+      <label>Mật khẩu</label><input id="li_pass" type="password" autocomplete="current-password" />
+      <div style="margin-top:12px"><button onclick="doLogin()">Đăng nhập</button></div>
+      <div id="loginMsg" class="msg"></div>
+    </div>
+
+    <div id="dash" class="hidden">
+      <div class="card">
+        <h2>Tài khoản Zalo</h2>
+        <div id="accounts"></div>
+        <h2>Thêm tài khoản</h2>
+        <div class="row">
+          <select id="newType" style="max-width:160px">
+            <option value="personal">Cá nhân (QR)</option>
+            <option value="oa">Official Account</option>
+          </select>
+          <input id="newLabel" placeholder="Nhãn" style="max-width:180px" />
+          <input id="newInboxIdent" placeholder="Inbox identifier" style="max-width:200px" />
+          <input id="newInboxId" placeholder="Inbox ID (số)" style="max-width:140px" />
+          <button onclick="createAccount()">Thêm</button>
+        </div>
+        <div id="addMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <h2 style="margin:0 0 4px">Webhook URLs</h2>
+        <p class="mut">Dán các URL này vào nơi tương ứng để bridge nhận/gửi tin.</p>
+        <label>Chatwoot inbox → bridge (mỗi inbox: Configuration → Webhook URL)</label>
+        <div class="row"><input id="wh_chatwoot" readonly style="flex:1;min-width:0" /><button class="sec" onclick="copyWebhook('wh_chatwoot')">Copy</button></div>
+        <label>Zalo OA → bridge (Zalo OA Developer console)</label>
+        <div class="row"><input id="wh_oa" readonly style="flex:1;min-width:0" /><button class="sec" onclick="copyWebhook('wh_oa')">Copy</button></div>
+        <div id="whMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <div class="cfg-head">
+          <h2 style="margin:0">Cấu hình</h2>
+          <button id="cfgToggle" class="sec" onclick="toggleConfig()">Hiện cấu hình</button>
+        </div>
+        <div id="cfgBody" class="hidden">
+          <p class="mut">Chỉ cần đặt một lần. Lưu sẽ khởi động lại bridge để áp dụng (~5–10s).</p>
+          <label>Chatwoot Account ID</label><input id="cfg_chatwoot_account_id" />
+          <label>Chatwoot API Access Token</label><input id="cfg_chatwoot_api_access_token" type="password" placeholder="(đang đặt — để trống nếu giữ nguyên)" />
+          <label>Zalo OA App ID</label><input id="cfg_zalo_oa_app_id" />
+          <label>Zalo OA App Secret</label><input id="cfg_zalo_oa_app_secret" type="password" placeholder="(đang đặt — để trống nếu giữ nguyên)" />
+          <label>Zalo OA Secret Key (ký webhook)</label><input id="cfg_zalo_oa_secret_key" type="password" placeholder="(đang đặt — để trống nếu giữ nguyên)" />
+          <label>Zalo OA OAuth Redirect</label><input id="cfg_zalo_oa_oauth_redirect" />
+          <div style="margin-top:12px"><button onclick="saveSettings()">Lưu & áp dụng</button></div>
+          <div id="cfgMsg" class="msg"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="cfg-head">
+          <h2 style="margin:0">Nhật ký (Logs)</h2>
+          <button class="sec" onclick="loadLogs()">Tải lại</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <select id="logLevel" style="max-width:160px" onchange="loadLogs()">
+            <option value="">Tất cả</option>
+            <option value="40">Cảnh báo trở lên</option>
+            <option value="50">Chỉ lỗi</option>
+          </select>
+          <select id="logAccount" style="max-width:200px" onchange="loadLogs()">
+            <option value="">Mọi tài khoản</option>
+          </select>
+          <button class="sec" onclick="copyLogs()">Copy</button>
+          <button class="sec" onclick="exportLogs()">Export JSON</button>
+        </div>
+        <div id="logsMsg" class="msg"></div>
+        <div id="logsBox" style="margin-top:8px;overflow-x:auto"></div>
+      </div>
+    </div>
+  </div>
+  <script src="/admin/admin.js"></script>
+</body>
+</html>

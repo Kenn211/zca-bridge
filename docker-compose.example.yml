@@ -1,0 +1,24 @@
+# Stack mẫu để tự host zca-bridge cùng với Chatwoot CỦA BẠN.
+# File này chỉ khởi động bridge và database của nó. Trỏ CHATWOOT_BASE_URL (trong .env)
+# tới Chatwoot có sẵn của bạn — Chatwoot không nằm trong file này.
+services:
+  bridge-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: zca
+      POSTGRES_USER: zca
+      POSTGRES_PASSWORD: zca
+    volumes: ["bridge_pg:/var/lib/postgresql/data"]
+
+  zca-bridge:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    depends_on: [bridge-db]
+    ports: ["4000:4000"]
+    # Lưu trữ media bền (sống sót khi link Zalo hết hạn / bị xóa).
+    volumes: ["zalo_media:/archive"]
+
+volumes:
+  bridge_pg:
+  zalo_media:
