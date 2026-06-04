@@ -2,66 +2,99 @@
 
 ![Zalo-Chatwoot Bridge](zalo-chatwoot.png)
 
-Cầu nối (sidecar) tự host, đồng bộ hội thoại [Zalo](https://zalo.me) hai chiều với
-[Chatwoot](https://www.chatwoot.com). Hỗ trợ cả tài khoản Zalo cá nhân (qua `zca-js`, đăng nhập bằng
-QR) lẫn Official Account (OA, dùng REST API), hiển thị tin nhắn như một inbox trong Chatwoot — gửi và
-nhận đều được. Tên package/kỹ thuật: `zca-bridge`.
+Cầu nối sidecar tự host, giúp đồng bộ hội thoại [Zalo](https://zalo.me) hai chiều với
+[Chatwoot](https://www.chatwoot.com). Dự án này cho phép hiển thị và xử lý tin nhắn Zalo như một
+inbox trong Chatwoot — có thể nhận và gửi tin nhắn từ cùng một giao diện.
+
+Dự án hỗ trợ hai hướng tích hợp:
+
+* **Zalo Official Account (OA)**: sử dụng API chính thức của Zalo.
+* **Tài khoản Zalo cá nhân**: sử dụng [`zca-js`](https://github.com/RFS-ADRENO/zca-js), đăng nhập bằng QR. Đây là thư viện không chính thức và có rủi ro riêng.
+
+Tên package/kỹ thuật: `zca-bridge`.
 
 Node 20 · TypeScript (ESM) · Fastify · PostgreSQL.
 
+> Đây là dự án độc lập, không thuộc sở hữu, không được tài trợ và không được xác nhận chính thức bởi Zalo, VNG, Chatwoot hoặc nhóm phát triển `zca-js`.
+
 ## ⚠️ Cảnh báo rủi ro
 
-Tài khoản Zalo **cá nhân** được kết nối qua [`zca-js`](https://github.com/RFS-ADRENO/zca-js) — một
-thư viện **không chính thức**. Dùng API không chính thức có thể khiến tài khoản Zalo bị **khóa hoặc
-cấm vĩnh viễn**. Hãy cân nhắc kỹ và **tự chịu rủi ro** — nên dùng tài khoản phụ, không dùng cho tài
-khoản quan trọng. Dự án này không đảm bảo và không chịu trách nhiệm nếu tài khoản gặp sự cố.
+Kênh **tài khoản Zalo cá nhân** hoạt động thông qua [`zca-js`](https://github.com/RFS-ADRENO/zca-js),
+một thư viện không chính thức. Việc sử dụng API không chính thức có thể khiến tài khoản Zalo bị hạn chế,
+khóa hoặc cấm vĩnh viễn.
 
-> Using this API could get your account locked or banned. We are not responsible for any issues that
-> may happen. Use it at your own risk.
+Hãy cân nhắc kỹ trước khi sử dụng. Nên dùng tài khoản phụ hoặc tài khoản thử nghiệm, không nên dùng
+tài khoản quan trọng, tài khoản kinh doanh chính hoặc tài khoản có dữ liệu nhạy cảm.
 
-Riêng kênh **Official Account (OA)** dùng API chính thức của Zalo nên **không** thuộc rủi ro này.
+Dự án này không đảm bảo an toàn tài khoản và không chịu trách nhiệm cho bất kỳ sự cố nào phát sinh
+khi sử dụng kênh tài khoản cá nhân.
+
+> Using unofficial APIs may get your account restricted, locked, or permanently banned. Use it at your own risk.
+
+Riêng kênh **Zalo Official Account (OA)** sử dụng API chính thức của Zalo nên không thuộc nhóm rủi ro
+từ `zca-js`.
 
 ## Tính năng
 
-- Nhắn tin hai chiều Zalo ↔ Chatwoot (text, ảnh, file, ghi âm, video, sticker, vị trí…).
-- Hàng đợi bền (lưu trước rồi mới xử lý) có retry + dead-letter, nên tin không mất khi restart.
-- Chống lặp/echo hai chiều bằng `message_map`.
-- Lưu trữ media bền (mọi file đính kèm được backup cục bộ; file quá lớn phục vụ qua link có token).
-- Trả lời trích dẫn (quote/reply), thả cảm xúc (reaction), thu hồi tin cho tài khoản cá nhân; OA hỗ
-  trợ trả lời trích dẫn dạng text.
+* Nhắn tin hai chiều Zalo ↔ Chatwoot.
+* Hỗ trợ text, ảnh, file, ghi âm, video, sticker, vị trí…
+* Hàng đợi bền: lưu trước rồi mới xử lý, có retry và dead-letter.
+* Chống lặp/echo hai chiều bằng `message_map`.
+* Lưu trữ media bền: mọi file đính kèm được backup cục bộ; file lớn có thể phục vụ qua link có token.
+* Hỗ trợ trả lời trích dẫn, reaction và thu hồi tin nhắn cho tài khoản cá nhân.
+* OA hỗ trợ trả lời trích dẫn dạng text.
 
 ## Yêu cầu
 
-- **Tự chuẩn bị Chatwoot** — dự án này KHÔNG kèm và không phân phối Chatwoot. Bạn trỏ bridge tới
-  Chatwoot có sẵn của mình.
-- Một PostgreSQL riêng cho bridge (tách khỏi DB của Chatwoot). Bridge tự chạy migration khi khởi động.
-- Node 20+ (hoặc Docker).
+* Bạn cần tự chuẩn bị một hệ thống Chatwoot đang hoạt động.
+* Dự án này **không kèm theo và không phân phối Chatwoot**.
+* Cần một PostgreSQL riêng cho bridge, tách khỏi database của Chatwoot.
+* Bridge tự chạy migration khi khởi động.
+* Node 20+ hoặc Docker.
 
 ## Cấu hình
 
-Copy `.env.example` thành `.env` rồi điền giá trị (mỗi biến đều có chú thích ngay trong
-`.env.example`). Tối thiểu cần: `DATABASE_URL`, `CHATWOOT_BASE_URL`, `CREDENTIALS_KEY`,
-`PUBLIC_BASE_URL`.
+Copy `.env.example` thành `.env` rồi điền giá trị cần thiết. Mỗi biến đều có chú thích trong
+`.env.example`.
+
+Tối thiểu cần cấu hình:
+
+* `DATABASE_URL`
+* `CHATWOOT_BASE_URL`
+* `CREDENTIALS_KEY`
+* `PUBLIC_BASE_URL`
+
+Ví dụ:
+
+```bash
+cp .env.example .env
+```
+
+Sau đó sửa file `.env` theo môi trường của bạn.
 
 ## Chạy
 
-### Docker Compose (khuyến nghị)
+### Docker Compose
+
+Khuyến nghị dùng Docker Compose:
 
 ```bash
-cp .env.example .env   # rồi sửa .env
+cp .env.example .env
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-File compose mẫu khởi động bridge và Postgres của nó. Đặt `CHATWOOT_BASE_URL` trong `.env` trỏ tới
-Chatwoot của bạn.
+File compose mẫu sẽ khởi động bridge và PostgreSQL riêng cho bridge. Biến `CHATWOOT_BASE_URL` cần trỏ
+tới Chatwoot có sẵn của bạn.
 
 ### Chạy trực tiếp
 
 ```bash
 npm ci
 npm run build
-npm start          # tự chạy migration khi khởi động, rồi lắng nghe trên $PORT (mặc định 4000)
+npm start
 ```
+
+Bridge sẽ tự chạy migration khi khởi động và lắng nghe trên `$PORT`, mặc định là `4000`.
 
 ## Kiểm thử
 
@@ -69,6 +102,22 @@ npm start          # tự chạy migration khi khởi động, rồi lắng nghe
 npx vitest run
 ```
 
+## Ghi chú về bên thứ ba
+
+Dự án này tích hợp hoặc phụ thuộc vào một số sản phẩm/dự án bên thứ ba:
+
+* [Chatwoot](https://www.chatwoot.com)
+* [Zalo](https://zalo.me)
+* [`zca-js`](https://github.com/RFS-ADRENO/zca-js)
+
+Tất cả tên thương hiệu, logo, nhãn hiệu và tên sản phẩm thuộc về chủ sở hữu tương ứng. Việc nhắc đến
+các bên thứ ba trong README chỉ nhằm mục đích mô tả khả năng tích hợp kỹ thuật.
+
 ## Giấy phép
 
-Copyright 2026 Tom. Phát hành theo [Apache License 2.0](LICENSE).
+Copyright 2026 Tom.
+
+Phát hành theo [Apache License 2.0](LICENSE).
+
+Dự án này chỉ là bridge độc lập. Chatwoot, Zalo và `zca-js` thuộc về chủ sở hữu tương ứng của họ.
+::: 
