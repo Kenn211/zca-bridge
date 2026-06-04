@@ -1,11 +1,25 @@
-# zca-bridge
+# Zalo-Chatwoot Bridge
+
+![Zalo-Chatwoot Bridge](zalo-chatwoot.png)
 
 Cầu nối (sidecar) tự host, đồng bộ hội thoại [Zalo](https://zalo.me) hai chiều với
 [Chatwoot](https://www.chatwoot.com). Hỗ trợ cả tài khoản Zalo cá nhân (qua `zca-js`, đăng nhập bằng
 QR) lẫn Official Account (OA, dùng REST API), hiển thị tin nhắn như một inbox trong Chatwoot — gửi và
-nhận đều được.
+nhận đều được. Tên package/kỹ thuật: `zca-bridge`.
 
 Node 20 · TypeScript (ESM) · Fastify · PostgreSQL.
+
+## ⚠️ Cảnh báo rủi ro
+
+Tài khoản Zalo **cá nhân** được kết nối qua [`zca-js`](https://github.com/RFS-ADRENO/zca-js) — một
+thư viện **không chính thức**. Dùng API không chính thức có thể khiến tài khoản Zalo bị **khóa hoặc
+cấm vĩnh viễn**. Hãy cân nhắc kỹ và **tự chịu rủi ro** — nên dùng tài khoản phụ, không dùng cho tài
+khoản quan trọng. Dự án này không đảm bảo và không chịu trách nhiệm nếu tài khoản gặp sự cố.
+
+> Using this API could get your account locked or banned. We are not responsible for any issues that
+> may happen. Use it at your own risk.
+
+Riêng kênh **Official Account (OA)** dùng API chính thức của Zalo nên **không** thuộc rủi ro này.
 
 ## Tính năng
 
