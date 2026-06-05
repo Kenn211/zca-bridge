@@ -6,7 +6,7 @@ Thanks for your interest in improving zca-bridge.
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 24+
 - A PostgreSQL instance for local runs (separate from Chatwoot's DB)
 - Docker (optional, for the container workflow)
 
@@ -40,6 +40,6 @@ startup; you can also run them with `npm run migrate`.
 
 ## Code style
 
-- TypeScript (ESM), Node 20. Keep files focused and small; prefer immutable updates.
+- TypeScript (ESM), Node 24. Keep files focused and small; prefer immutable updates.
 - Match the surrounding code's conventions. Validate input at system boundaries and
   handle errors explicitly — never swallow them silently.

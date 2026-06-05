@@ -1,4 +1,4 @@
-FROM node:20-bookworm-slim
+FROM node:24-bookworm-slim
 WORKDIR /app
 COPY package.json package-lock.json* ./
 # Install ALL deps (incl. devDeps: typescript + @types/*) so the build can type-check.

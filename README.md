@@ -13,7 +13,7 @@ A self-hosted sidecar that syncs [Zalo](https://zalo.me) conversations two-way w
 official REST API), surfacing Zalo messages as a Chatwoot inbox so agents can send and receive
 without leaving their helpdesk. Package/technical name: `zca-bridge`.
 
-Node 20 · TypeScript (ESM) · Fastify · PostgreSQL
+Node 24 · TypeScript (ESM) · Fastify · PostgreSQL
 
 > This is an independent project. It is not owned by, sponsored by, or officially endorsed by Zalo, VNG, Chatwoot, or the `zca-js` developers.
 
@@ -78,7 +78,7 @@ The bridge moves messages along two durable paths, both backed by a PostgreSQL j
   bridge at your existing Chatwoot instance.
 - A dedicated PostgreSQL for the bridge, separate from Chatwoot's database. The bridge auto-runs
   migrations on startup.
-- Node 20+ (or Docker).
+- Node 24+ (or Docker).
 
 ## Configuration
 
