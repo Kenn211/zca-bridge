@@ -15,6 +15,8 @@ without leaving their helpdesk. Package/technical name: `zca-bridge`.
 
 Node 20 · TypeScript (ESM) · Fastify · PostgreSQL
 
+> This is an independent project. It is not owned by, sponsored by, or officially endorsed by Zalo, VNG, Chatwoot, or the `zca-js` developers.
+
 ## Why this matters
 
 Vietnamese support teams live on Zalo, but Zalo has no native Chatwoot integration, so agents end up
@@ -36,8 +38,7 @@ banned**. Consider carefully and use it **at your own risk** — prefer a second
 not use it for critical accounts. This project provides no warranty and takes no responsibility if
 your account runs into trouble.
 
-> Using this API could get your account locked or banned. We are not responsible for any issues that
-> may happen. Use it at your own risk.
+> Using unofficial APIs may get your account restricted, locked, or permanently banned. Use it at your own risk.
 
 The **Official Account (OA)** channel uses Zalo's official API and is therefore **exempt** from this
 risk. See [SECURITY.md](SECURITY.md).
@@ -139,6 +140,20 @@ improving TypeScript code quality, refactoring the Zalo/Chatwoot sync logic, che
 queue reliability, improving Docker deployment, writing documentation, triaging issues, and reviewing
 security-sensitive areas such as tokens, webhooks, media uploads, retries, and API integrations.
 
+## Third-party notice
+
+This project integrates with and depends on third-party products:
+
+- [Chatwoot](https://www.chatwoot.com)
+- [Zalo](https://zalo.me)
+- [`zca-js`](https://github.com/RFS-ADRENO/zca-js)
+
+All brand names, logos, trademarks, and product names belong to their respective owners. Mentions of
+these third parties are for describing technical integration only.
+
 ## License
 
 Copyright 2026 Tom. Released under the [Apache License 2.0](LICENSE).
+
+This project is an independent bridge only. Chatwoot, Zalo, and `zca-js` belong to their respective
+owners.
