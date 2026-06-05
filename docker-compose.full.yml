@@ -1,97 +1,18 @@
-# All-in-one stack: brings up Chatwoot (rails + sidekiq + Postgres + Redis) AND the
-# zca-bridge with its own Postgres — everything from a single file:
+# Run zca-bridge straight from the prebuilt image — no source checkout, no build.
+# Download just this file (and a .env) and run it:
 #
-#   cp .env.example .env     # then edit .env: set the *_PASSWORD values,
-#                            # CHATWOOT_SECRET_KEY_BASE, CREDENTIALS_KEY, PUBLIC_BASE_URL...
-#   docker compose -f docker-compose.full.yml up -d --build
+#   cp .env.example .env   # set CHATWOOT_BASE_URL (your existing Chatwoot),
+#                          # CREDENTIALS_KEY, PUBLIC_BASE_URL...
+#   docker compose -f docker-compose.full.yml up -d
 #
-#   Chatwoot UI:  http://localhost:3000   (create your account, then an API Access Token)
-#   Bridge:       http://localhost:4000
+#   Bridge: http://localhost:4000
 #
-# This project does NOT bundle or redistribute Chatwoot. This file only orchestrates
-# the official upstream `chatwoot/chatwoot` image for convenience; it is pulled at
-# runtime and belongs to its owners.
-#
-# One-time manual step after the first boot (the bridge needs a Chatwoot token):
-#   1. Open http://localhost:3000 and create your Chatwoot account.
-#   2. Profile Settings -> Access Token; create an inbox/agent as needed.
-#   3. Put CHATWOOT_API_ACCESS_TOKEN and CHATWOOT_ACCOUNT_ID into .env.
-#   4. docker compose -f docker-compose.full.yml up -d   # recreates the bridge with the token
-
-# Shared Chatwoot env. Topology (hostnames) lives here; secrets come from .env.
-x-chatwoot-env: &chatwoot-env
-  env_file: .env
-  environment:
-    NODE_ENV: production
-    RAILS_ENV: production
-    INSTALLATION_ENV: docker
-    POSTGRES_HOST: chatwoot-postgres
-    POSTGRES_USERNAME: postgres
-    POSTGRES_PASSWORD: ${CHATWOOT_POSTGRES_PASSWORD}
-    POSTGRES_DATABASE: chatwoot
-    REDIS_URL: redis://:${CHATWOOT_REDIS_PASSWORD}@chatwoot-redis:6379
-    REDIS_PASSWORD: ${CHATWOOT_REDIS_PASSWORD}
-    SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE}
-    FRONTEND_URL: ${CHATWOOT_FRONTEND_URL:-http://localhost:3000}
+# Bring your own Chatwoot — point CHATWOOT_BASE_URL at it in .env.
+# The image is pulled from GitHub Container Registry; the package must be public
+# (otherwise run `docker login ghcr.io` first).
 
 services:
-  # --- Chatwoot dependencies ---
-  chatwoot-postgres:
-    image: pgvector/pgvector:pg16
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: chatwoot
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${CHATWOOT_POSTGRES_PASSWORD}
-    volumes: ["chatwoot_pg:/var/lib/postgresql/data"]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  chatwoot-redis:
-    image: redis:alpine
-    restart: unless-stopped
-    command: ["redis-server", "--requirepass", "${CHATWOOT_REDIS_PASSWORD}"]
-    volumes: ["chatwoot_redis:/data"]
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$CHATWOOT_REDIS_PASSWORD\" ping | grep -q PONG"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-  # One-shot: prepare/migrate the Chatwoot database, then exit. rails/sidekiq wait for it.
-  chatwoot-prepare:
-    image: chatwoot/chatwoot:latest
-    <<: *chatwoot-env
-    depends_on:
-      chatwoot-postgres: { condition: service_healthy }
-      chatwoot-redis: { condition: service_healthy }
-    command: ["bundle", "exec", "rails", "db:chatwoot_prepare"]
-    restart: "no"
-
-  chatwoot-rails:
-    image: chatwoot/chatwoot:latest
-    <<: *chatwoot-env
-    depends_on:
-      chatwoot-prepare: { condition: service_completed_successfully }
-    entrypoint: docker/entrypoints/rails.sh
-    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
-    ports: ["3000:3000"]
-    volumes: ["chatwoot_storage:/app/storage"]
-    restart: unless-stopped
-
-  chatwoot-sidekiq:
-    image: chatwoot/chatwoot:latest
-    <<: *chatwoot-env
-    depends_on:
-      chatwoot-prepare: { condition: service_completed_successfully }
-    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
-    volumes: ["chatwoot_storage:/app/storage"]
-    restart: unless-stopped
-
-  # --- Bridge ---
+  # Dedicated Postgres for the bridge (separate from Chatwoot's database).
   bridge-db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -107,23 +28,18 @@ services:
       retries: 10
 
   zca-bridge:
-    build: .
+    image: ghcr.io/diendh/zca-bridge:latest
     restart: unless-stopped
     env_file: .env
-    # Wire the bridge to the bundled services regardless of .env defaults.
+    # Use the bundled bridge-db regardless of the .env default.
     environment:
       DATABASE_URL: postgres://zca:zca@bridge-db:5432/zca
-      CHATWOOT_BASE_URL: http://chatwoot-rails:3000
     depends_on:
       bridge-db: { condition: service_healthy }
-      chatwoot-rails: { condition: service_started }
     ports: ["4000:4000"]
     # Durable media archive (survives Zalo link expiry / deletion).
     volumes: ["zalo_media:/archive"]
 
 volumes:
-  chatwoot_pg:
-  chatwoot_redis:
-  chatwoot_storage:
   bridge_pg:
   zalo_media:

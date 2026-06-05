@@ -109,23 +109,20 @@ Sau đó sửa file `.env` theo môi trường của bạn.
 
 ## Chạy
 
-### All-in-one — kèm sẵn Chatwoot (chỉ một file)
+### Image dựng sẵn, không cần build (chỉ một file)
 
-Dựng toàn bộ (Chatwoot rails + sidekiq + Postgres + Redis **và** bridge cùng Postgres riêng) chỉ từ
-một file:
+Chạy bridge cùng Postgres của nó thẳng từ image đã publish — không cần tải mã nguồn. Chỉ cần
+`docker-compose.full.yml` và một file `.env`:
 
 ```bash
-cp .env.example .env   # rồi sửa .env: điền các *_PASSWORD, CHATWOOT_SECRET_KEY_BASE,
-                       # CREDENTIALS_KEY, PUBLIC_BASE_URL...
-docker compose -f docker-compose.full.yml up -d --build
+cp .env.example .env   # điền CHATWOOT_BASE_URL (Chatwoot của bạn), CREDENTIALS_KEY, PUBLIC_BASE_URL...
+docker compose -f docker-compose.full.yml up -d
 ```
 
-Chatwoot UI: `http://localhost:3000` · Bridge: `http://localhost:4000`. File này không kèm hay phân
-phối lại Chatwoot — chỉ điều phối image chính thức `chatwoot/chatwoot` (pull lúc chạy). Bước thủ công
-một lần sau khi khởi động: tạo tài khoản Chatwoot, lấy Access Token, điền `CHATWOOT_API_ACCESS_TOKEN`
-và `CHATWOOT_ACCOUNT_ID` vào `.env`, rồi chạy lại `up -d`.
+Bridge: `http://localhost:4000`. Tự chuẩn bị Chatwoot (trỏ `CHATWOOT_BASE_URL` tới nó). Image được
+pull từ ghcr.io — package phải ở chế độ public, hoặc chạy `docker login ghcr.io` trước.
 
-### Docker Compose (tự host Chatwoot riêng)
+### Docker Compose — build từ mã nguồn (tự host Chatwoot riêng)
 
 Khuyến nghị dùng Docker Compose:
 
@@ -137,14 +134,13 @@ docker compose -f docker-compose.example.yml up -d --build
 File compose mẫu sẽ khởi động bridge và PostgreSQL riêng cho bridge. Biến `CHATWOOT_BASE_URL` cần trỏ
 tới Chatwoot có sẵn của bạn.
 
-### Image dựng sẵn (ghcr.io)
+### Container đơn
 
 ```bash
 docker run --env-file .env -p 4000:4000 ghcr.io/diendh/zca-bridge:latest
 ```
 
-Lưu ý: bạn vẫn cần một PostgreSQL và Chatwoot truy cập được. Hoặc, trong `docker-compose.example.yml`
-thay `build: .` bằng `image: ghcr.io/diendh/zca-bridge:latest` để chạy image đã publish.
+Lưu ý: bạn vẫn cần một PostgreSQL và Chatwoot truy cập được.
 
 ### Chạy trực tiếp
 

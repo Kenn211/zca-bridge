@@ -88,23 +88,20 @@ Copy `.env.example` to `.env` and fill in the values (each variable is documente
 
 ## Run
 
-### All-in-one — bundled Chatwoot (one file)
+### Prebuilt image, no build (one file)
 
-Spin up everything (Chatwoot rails + sidekiq + Postgres + Redis **and** the bridge with its own
-Postgres) from a single file:
+Run the bridge and its Postgres straight from the published image — no source checkout needed. Grab
+just `docker-compose.full.yml` and a `.env`:
 
 ```bash
-cp .env.example .env   # then edit .env: set the *_PASSWORD values, CHATWOOT_SECRET_KEY_BASE,
-                       # CREDENTIALS_KEY, PUBLIC_BASE_URL...
-docker compose -f docker-compose.full.yml up -d --build
+cp .env.example .env   # set CHATWOOT_BASE_URL (your Chatwoot), CREDENTIALS_KEY, PUBLIC_BASE_URL...
+docker compose -f docker-compose.full.yml up -d
 ```
 
-Chatwoot UI: `http://localhost:3000` · Bridge: `http://localhost:4000`. This does not bundle or
-redistribute Chatwoot — it orchestrates the official upstream `chatwoot/chatwoot` image at runtime.
-One-time step after first boot: create your Chatwoot account, generate an Access Token, put
-`CHATWOOT_API_ACCESS_TOKEN` and `CHATWOOT_ACCOUNT_ID` into `.env`, then re-run `up -d`.
+Bridge: `http://localhost:4000`. Bring your own Chatwoot (point `CHATWOOT_BASE_URL` at it). The image
+is pulled from ghcr.io — the package must be public, or run `docker login ghcr.io` first.
 
-### Docker Compose (bring your own Chatwoot)
+### Docker Compose — build from source (bring your own Chatwoot)
 
 ```bash
 cp .env.example .env   # then edit .env
@@ -113,15 +110,13 @@ docker compose -f docker-compose.example.yml up -d --build
 
 The compose file starts the bridge and its Postgres. Set `CHATWOOT_BASE_URL` to your Chatwoot.
 
-### Prebuilt image (ghcr.io)
+### Single container
 
 ```bash
 docker run --env-file .env -p 4000:4000 ghcr.io/diendh/zca-bridge:latest
 ```
 
-Note: you still need a reachable PostgreSQL and Chatwoot. Alternatively, in
-`docker-compose.example.yml` replace `build: .` with `image: ghcr.io/diendh/zca-bridge:latest` to
-run the published image.
+Note: you still need a reachable PostgreSQL and Chatwoot.
 
 ### Direct
 
