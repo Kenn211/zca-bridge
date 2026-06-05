@@ -1,4 +1,4 @@
-🇬🇧 English: [README.md](README.md)
+🇬🇧 English: [README.en.md](README.en.md)
 
 # Zalo-Chatwoot Bridge
 
