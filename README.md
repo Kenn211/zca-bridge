@@ -72,6 +72,18 @@ The bridge moves messages along two durable paths, both backed by a PostgreSQL j
 - `src/admin` — admin API + dashboard.
 - `src/media` — archive + tokenized serving.
 
+## Documentation
+
+Full guides live in the [project wiki](https://github.com/diendh/zca-bridge/wiki) (English +
+Tiếng Việt):
+
+- [Installation](https://github.com/diendh/zca-bridge/wiki/Installation)
+- [Configuration](https://github.com/diendh/zca-bridge/wiki/Configuration) — full env var reference
+- [Architecture](https://github.com/diendh/zca-bridge/wiki/Architecture)
+- [Chatwoot setup](https://github.com/diendh/zca-bridge/wiki/Chatwoot-Setup)
+- [Zalo personal account](https://github.com/diendh/zca-bridge/wiki/Zalo-Personal-Account) · [Zalo OA setup](https://github.com/diendh/zca-bridge/wiki/Zalo-OA-Setup)
+- [Troubleshooting](https://github.com/diendh/zca-bridge/wiki/Troubleshooting)
+
 ## Requirements
 
 - **Bring your own Chatwoot** — this project does NOT bundle or distribute Chatwoot. Point the
