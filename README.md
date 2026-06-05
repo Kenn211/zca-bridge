@@ -88,7 +88,23 @@ Copy `.env.example` to `.env` and fill in the values (each variable is documente
 
 ## Run
 
-### Docker Compose (recommended)
+### All-in-one — bundled Chatwoot (one file)
+
+Spin up everything (Chatwoot rails + sidekiq + Postgres + Redis **and** the bridge with its own
+Postgres) from a single file:
+
+```bash
+cp .env.example .env   # then edit .env: set the *_PASSWORD values, CHATWOOT_SECRET_KEY_BASE,
+                       # CREDENTIALS_KEY, PUBLIC_BASE_URL...
+docker compose -f docker-compose.full.yml up -d --build
+```
+
+Chatwoot UI: `http://localhost:3000` · Bridge: `http://localhost:4000`. This does not bundle or
+redistribute Chatwoot — it orchestrates the official upstream `chatwoot/chatwoot` image at runtime.
+One-time step after first boot: create your Chatwoot account, generate an Access Token, put
+`CHATWOOT_API_ACCESS_TOKEN` and `CHATWOOT_ACCOUNT_ID` into `.env`, then re-run `up -d`.
+
+### Docker Compose (bring your own Chatwoot)
 
 ```bash
 cp .env.example .env   # then edit .env

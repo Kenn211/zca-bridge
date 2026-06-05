@@ -109,7 +109,23 @@ Sau đó sửa file `.env` theo môi trường của bạn.
 
 ## Chạy
 
-### Docker Compose
+### All-in-one — kèm sẵn Chatwoot (chỉ một file)
+
+Dựng toàn bộ (Chatwoot rails + sidekiq + Postgres + Redis **và** bridge cùng Postgres riêng) chỉ từ
+một file:
+
+```bash
+cp .env.example .env   # rồi sửa .env: điền các *_PASSWORD, CHATWOOT_SECRET_KEY_BASE,
+                       # CREDENTIALS_KEY, PUBLIC_BASE_URL...
+docker compose -f docker-compose.full.yml up -d --build
+```
+
+Chatwoot UI: `http://localhost:3000` · Bridge: `http://localhost:4000`. File này không kèm hay phân
+phối lại Chatwoot — chỉ điều phối image chính thức `chatwoot/chatwoot` (pull lúc chạy). Bước thủ công
+một lần sau khi khởi động: tạo tài khoản Chatwoot, lấy Access Token, điền `CHATWOOT_API_ACCESS_TOKEN`
+và `CHATWOOT_ACCOUNT_ID` vào `.env`, rồi chạy lại `up -d`.
+
+### Docker Compose (tự host Chatwoot riêng)
 
 Khuyến nghị dùng Docker Compose:
 
