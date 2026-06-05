@@ -4,7 +4,7 @@
 
 ## Reporting a vulnerability
 
-Please report security issues privately to **c@vietts.dev**. Do not open a public
+Please report security issues privately to **diendh2014@gmail.com**. Do not open a public
 issue for vulnerabilities. Include reproduction steps and impact; expect an
 acknowledgement within a few days.
 

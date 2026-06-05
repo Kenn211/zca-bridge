@@ -4,7 +4,7 @@
 
 ## Báo cáo lỗ hổng bảo mật
 
-Vui lòng báo cáo các vấn đề bảo mật một cách riêng tư tới **c@vietts.dev**. Không mở issue công khai cho các lỗ hổng bảo mật. Hãy cung cấp các bước tái hiện và mức độ ảnh hưởng; bạn sẽ nhận được phản hồi trong vòng vài ngày.
+Vui lòng báo cáo các vấn đề bảo mật một cách riêng tư tới **diendh2014@gmail.com**. Không mở issue công khai cho các lỗ hổng bảo mật. Hãy cung cấp các bước tái hiện và mức độ ảnh hưởng; bạn sẽ nhận được phản hồi trong vòng vài ngày.
 
 ## Các phiên bản được hỗ trợ
 
