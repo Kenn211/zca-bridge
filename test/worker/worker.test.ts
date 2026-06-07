@@ -43,8 +43,7 @@ describe("Worker.tick", () => {
     expect(q.markRetry).toHaveBeenCalledWith(1, expect.stringContaining("send failed"), backoffSeconds(2));
   });
 
-  // TODO(quarantine, 2026-06-05): drifted from src — onPermanentFailure signature changed. Restore when reconciled.
-  it.skip("invokes onPermanentFailure when a job dead-letters", async () => {
+  it("invokes onPermanentFailure when a job dead-letters", async () => {
     const failing = job({ kind: "outbound", attempts: 25 });
     const q = {
       claimNext: vi.fn(async () => failing),

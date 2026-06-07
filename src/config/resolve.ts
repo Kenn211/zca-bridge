@@ -15,6 +15,7 @@ export async function resolveSettings(
     return env;
   }
 
+  const chatwootBaseUrl = (db["chatwoot_base_url"] ?? env.chatwootBaseUrl).replace(/\/$/, "");
   const chatwootApiAccessToken = db["chatwoot_api_access_token"] ?? env.chatwootApiAccessToken;
   const accId = db["chatwoot_account_id"];
   const chatwootAccountId = accId != null && accId !== "" ? Number(accId) : env.chatwootAccountId;
@@ -27,5 +28,5 @@ export async function resolveSettings(
     ? { appId: oaAppId, appSecret: oaAppSecret, redirectUri: oaRedirect, secretKey: oaSecretKey }
     : undefined;
 
-  return { ...env, chatwootApiAccessToken, chatwootAccountId, oa };
+  return { ...env, chatwootBaseUrl, chatwootApiAccessToken, chatwootAccountId, oa };
 }

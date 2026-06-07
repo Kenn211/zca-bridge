@@ -8,7 +8,7 @@ export function backoffSeconds(attempts: number): number {
 }
 
 export type DispatchFn = (job: Job) => Promise<void>;
-export type PermanentFailureFn = (job: Job) => Promise<void>;
+export type PermanentFailureFn = (job: Job, error: unknown) => Promise<void>;
 
 export class Worker {
   private running = false;
@@ -57,7 +57,7 @@ export class Worker {
         backoffSeconds(job.attempts)
       );
       if (res.status === "failed") {
-        try { await this.onPermanentFailure(job); } catch { /* never let the failure hook crash the loop */ }
+        try { await this.onPermanentFailure(job, err); } catch { /* never let the failure hook crash the loop */ }
       }
     }
     return true;

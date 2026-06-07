@@ -5,6 +5,7 @@ type Pre = (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
 
 /** The editable settings and whether each is a secret (masked on read). */
 const FIELDS: Array<{ key: string; secret: boolean }> = [
+  { key: "chatwoot_base_url", secret: false },
   { key: "chatwoot_account_id", secret: false },
   { key: "chatwoot_api_access_token", secret: true },
   { key: "zalo_oa_app_id", secret: false },

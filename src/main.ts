@@ -17,6 +17,7 @@ import { LogsRepo } from "./store/logsRepo.js";
 import { DbLogStream } from "./logging/dbLogStream.js";
 import { ChatwootClient } from "./chatwoot/client.js";
 import { ChatwootAppClient } from "./chatwoot/appClient.js";
+import { ChatwootAdminClient, ChatwootInboxProvisioner } from "./chatwoot/adminClient.js";
 import { registerWebhookRoute, OutgoingEvent } from "./chatwoot/webhookServer.js";
 import { registerAdminRoutes, registerAccountDeleteRoute } from "./admin/routes.js";
 import { registerAuthRoutes, makeRequireSession } from "./admin/authRoutes.js";
@@ -30,6 +31,7 @@ import { ZcaQrLoginService } from "./zalo/qrLoginService.js";
 import { InboundHandler } from "./handlers/inbound.js";
 import { OutboundHandler } from "./handlers/outbound.js";
 import { makeOutboundNotifier } from "./handlers/outboundNotify.js";
+import { deadLetterNote, windowNote } from "./handlers/outboundNotes.js";
 import { ReactionHandler, UndoHandler } from "./handlers/events.js";
 import { makeEnricher } from "./handlers/enrichment.js";
 import { Worker } from "./worker/worker.js";
@@ -87,14 +89,23 @@ async function main(): Promise<void> {
   const chatwoot = new ChatwootClient(cfg.chatwootBaseUrl);
   const appClient = new ChatwootAppClient(cfg.chatwootBaseUrl, cfg.chatwootApiAccessToken, cfg.chatwootAccountId);
   const archive = new LocalDiskArchive(cfg.mediaArchiveRoot, cfg.publicBaseUrl, cfg.credentialsKey, cfg.mediaTokenTtlDays);
+  const webhookUrls = buildWebhookUrls({
+    chatwootWebhookBase: cfg.chatwootWebhookBase,
+    webhookSecret: cfg.webhookSecret,
+    publicBaseUrl: cfg.publicBaseUrl,
+  });
+  const chatwootAdmin = new ChatwootAdminClient(cfg.chatwootBaseUrl, cfg.chatwootApiAccessToken, cfg.chatwootAccountId);
+  const inboxProvisioner = new ChatwootInboxProvisioner(chatwootAdmin, webhookUrls.chatwoot);
 
   // inbox_id -> identifier index, refreshed from DB
   const inboxIndex = new Map<number, string>();
   async function refreshIndex(): Promise<void> {
-    inboxIndex.clear();
+    const nextIndex = new Map<number, string>();
     for (const a of await accounts.listAll()) {
-      if (a.chatwootInboxId) inboxIndex.set(a.chatwootInboxId, a.chatwootInboxIdentifier);
+      if (a.chatwootInboxId) nextIndex.set(a.chatwootInboxId, a.chatwootInboxIdentifier);
     }
+    inboxIndex.clear();
+    for (const [inboxId, identifier] of nextIndex) inboxIndex.set(inboxId, identifier);
   }
 
   const sessions = new SessionManager((accountId, reason) => {
@@ -124,10 +135,11 @@ async function main(): Promise<void> {
   const notifyOutbound = makeOutboundNotifier((id) => inboxIndex.get(id) ?? null, accounts, conversations, appClient, app.log);
   const outbound = new OutboundHandler(
     sessions, accounts, (id) => inboxIndex.get(id) ?? null, mapping, cfg.chatwootBaseUrl,
-    (evt) => notifyOutbound(evt, "⚠️ Ngoài cửa sổ tư vấn — không gửi được tin này sang Zalo OA."),
+    (evt, error) => notifyOutbound(evt, windowNote(evt, error)),
     app.log,
     consult,
     notifyOutbound,
+    archive,
   );
   const reactions = new ReactionHandler(conversations, mapping, appClient);
   const undos = new UndoHandler(conversations, mapping, appClient);
@@ -178,12 +190,12 @@ async function main(): Promise<void> {
   };
 
   // On permanent failure of an outbound send, alert the agent in-conversation.
-  const onPermanentFailure = async (job: Job): Promise<void> => {
-    app.log.error({ kind: job.kind, dedupKey: job.dedupKey }, "job dead-lettered");
+  const onPermanentFailure = async (job: Job, error: unknown): Promise<void> => {
+    app.log.error({ kind: job.kind, dedupKey: job.dedupKey, err: error }, "job dead-lettered");
     if (job.kind !== "outbound") return;
-    // Only genuinely transient errors reach here now (permanent ones already notified + did not retry),
-    // so the generic "check connection and resend" wording is accurate.
-    await notifyOutbound(job.payload as OutgoingEvent, "⚠️ Không gửi được tin nhắn này sang Zalo (đã thử lại nhiều lần). Vui lòng kiểm tra kết nối Zalo và gửi lại.");
+    // The note identifies which message failed and carries the underlying error verbatim, so the
+    // agent can tell what broke and how to fix it (not just "check the connection").
+    await notifyOutbound(job.payload as OutgoingEvent, deadLetterNote(job.payload as OutgoingEvent, error));
   };
 
   const worker = new Worker(jobs, dispatch, onPermanentFailure);
@@ -217,16 +229,12 @@ async function main(): Promise<void> {
   };
   app.get("/healthz", async () => ({ ok: true }));
   registerAuthRoutes(app, { users: adminUsers, sessionSecret });
-  registerAdminRoutes(app, accounts, qr, guard);
+  registerAdminRoutes(app, accounts, qr, guard, { provisioner: inboxProvisioner, refreshInboxIndex: refreshIndex });
   registerAccountDeleteRoute(app, accounts, sessions, refreshIndex, guard);
   registerSettingsRoutes(app, settingsRepo, guard, requestRestart);
   registerLogsRoutes(app, logsRepo, guard);
   registerInfoCardRoutes(app, infoCard, guard);
-  registerWebhookInfoRoutes(app, buildWebhookUrls({
-    chatwootWebhookBase: cfg.chatwootWebhookBase,
-    webhookSecret: cfg.webhookSecret,
-    publicBaseUrl: cfg.publicBaseUrl,
-  }), guard);
+  registerWebhookInfoRoutes(app, webhookUrls, guard);
   app.addHook("onReady", refreshIndex);
 
   if (cfg.oa) {

@@ -5,18 +5,30 @@ import { MappingRepo } from "../store/mappingRepo.js";
 import { decodeSourceId, ThreadKind } from "../routing/sourceId.js";
 import { ZaloThreadKind, QuoteSource, ZaloFileRejectedError } from "../zalo/types.js";
 import { OutgoingEvent } from "../chatwoot/webhookServer.js";
-import { OaWindowError } from "../zalo-oa/sender.js";
+import { OaWindowError, OaPermanentError } from "../zalo-oa/sender.js";
 import { EventLog, NOOP_LOG } from "../logging/eventLog.js";
 import { OutboundNotifier } from "./outboundNotify.js";
+import { MediaArchive } from "../media/archive.js";
+import { nameFromUrl, noSessionNote, downloadFailedNote, fileRejectedNote, linkSentNote, permanentSendNote } from "./outboundNotes.js";
 
 interface ConsultHook { onOutbound(accountId: number, sourceId: string): Promise<void>; }
 
-const MSG_NO_SESSION = "⚠️ Tài khoản Zalo đang mất kết nối — tin chưa được gửi. Hãy kết nối lại Zalo rồi gửi lại.";
-const fileRejectedNote = (name: string): string =>
-  `⚠️ Không gửi được tệp «${name}» sang Zalo — định dạng không được hỗ trợ hoặc tệp quá lớn.`;
-const downloadFailedNote = (name: string): string =>
-  `⚠️ Không tải được tệp đính kèm «${name}» từ Chatwoot để gửi sang Zalo.`;
-const nameFromUrl = (url: string): string => url.split("/").pop()?.split("?")[0] || "tệp";
+const customerLinkMessage = (name: string, url: string): string =>
+  `📎 Tệp «${name}» quá lớn để gửi trực tiếp qua Zalo. Bạn có thể tải tại đây:\n${url}`;
+
+const LINK_FALLBACK_CT: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", pdf: "application/pdf",
+};
+function guessContentType(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() ?? "";
+  return LINK_FALLBACK_CT[ext] ?? "application/octet-stream";
+}
+// Strip path separators and control chars; keep unicode letters/digits so the
+// archived filename stays readable. Empty result → "file".
+function sanitizeKeySegment(name: string): string {
+  const s = name.replace(/[^\p{L}\p{N}._-]+/gu, "_") || "file";
+  return s === "." || s === ".." ? "file" : s; // never let a segment resolve to a directory
+}
 
 function toZaloKind(kind: ThreadKind): ZaloThreadKind {
   if (kind === ThreadKind.Group) return ZaloThreadKind.Group;
@@ -31,10 +43,11 @@ export class OutboundHandler {
     private inboxIdentifierForId: (inboxId: number) => string | null,
     private mapping: MappingRepo,
     private chatwootBaseUrl: string,
-    private onWindowBlocked: (evt: OutgoingEvent) => Promise<void> = async () => {},
+    private onWindowBlocked: (evt: OutgoingEvent, error: unknown) => Promise<void> = async () => {},
     private log: EventLog = NOOP_LOG,
     private consult?: ConsultHook,
     private notify: OutboundNotifier = async () => {},
+    private archive?: MediaArchive,
   ) {}
 
   async handle(evt: OutgoingEvent): Promise<void> {
@@ -48,7 +61,7 @@ export class OutboundHandler {
     if (!account) { this.log.warn({ event: "outbound_skipped", reason: "no_account", inboxId: evt.inboxId, chatwootMessageId: evt.chatwootMessageId }, "outbound skipped"); return; }
     if (!this.sessions.has(account.id)) {
       this.log.warn({ event: "outbound_skipped", reason: "no_session", accountId: account.id, chatwootMessageId: evt.chatwootMessageId }, "outbound skipped");
-      await this.notify(evt, MSG_NO_SESSION); // session expired/not connected → tell the agent, drop the message
+      await this.notify(evt, noSessionNote(evt)); // session expired/not connected → tell the agent, drop the message
       return;
     }
 
@@ -61,7 +74,7 @@ export class OutboundHandler {
       if (!file) {
         // download() returns null only for a permanent (4xx) failure; transient errors throw.
         this.log.warn({ event: "outbound_skipped", reason: "attachment_download_failed", accountId: account.id, chatwootMessageId: evt.chatwootMessageId }, "outbound attachment download failed");
-        await this.notify(evt, downloadFailedNote(nameFromUrl(att.dataUrl)));
+        await this.notify(evt, downloadFailedNote(evt, nameFromUrl(att.dataUrl)));
         continue;
       }
       try {
@@ -71,12 +84,18 @@ export class OutboundHandler {
       } catch (err) {
         if (err instanceof OaWindowError) {
           this.log.warn({ event: "outbound_failed", reason: "oa_window", accountId: account.id, chatwootMessageId: evt.chatwootMessageId }, "outbound attachment blocked by OA window");
-          await this.onWindowBlocked(evt); return;
+          await this.onWindowBlocked(evt, err); return;
+        }
+        if (err instanceof OaPermanentError) {
+          this.log.warn({ event: "outbound_failed", reason: "oa_permanent", accountId: account.id, chatwootMessageId: evt.chatwootMessageId, code: err.code }, "outbound attachment permanently rejected by Zalo");
+          await this.notify(evt, permanentSendNote(evt, err));
+          continue;
         }
         if (err instanceof ZaloFileRejectedError) {
-          // Permanent: Zalo refused this file. Notify with the name and skip it — retrying is futile.
+          // Permanent: Zalo refused this file. Try to still deliver it to the customer via a
+          // /media download link; if that's not possible, notify the agent. Retrying is futile.
           this.log.warn({ event: "outbound_failed", reason: "file_rejected", accountId: account.id, chatwootMessageId: evt.chatwootMessageId }, "outbound attachment rejected by Zalo");
-          await this.notify(evt, fileRejectedNote(err.filename || file.filename));
+          await this.linkFallback(evt, account.id, threadId, zaloKind, file, err);
           continue;
         }
         this.log.error({ event: "outbound_failed", reason: "attachment", accountId: account.id, chatwootMessageId: evt.chatwootMessageId, err }, "outbound attachment send failed");
@@ -94,7 +113,12 @@ export class OutboundHandler {
       } catch (err) {
         if (err instanceof OaWindowError) {
           this.log.warn({ event: "outbound_failed", reason: "oa_window", accountId: account.id, chatwootMessageId: evt.chatwootMessageId }, "outbound blocked by OA window");
-          await this.onWindowBlocked(evt); return;
+          await this.onWindowBlocked(evt, err); return;
+        }
+        if (err instanceof OaPermanentError) {
+          this.log.warn({ event: "outbound_failed", reason: "oa_permanent", accountId: account.id, chatwootMessageId: evt.chatwootMessageId, code: err.code }, "outbound permanently rejected by Zalo");
+          await this.notify(evt, permanentSendNote(evt, err));
+          return;
         }
         this.log.error({ event: "outbound_failed", accountId: account.id, chatwootMessageId: evt.chatwootMessageId, err }, "outbound send failed");
         throw err;
@@ -102,6 +126,31 @@ export class OutboundHandler {
     }
     if (sentAny && account.type === "oa") {
       this.consult?.onOutbound(account.id, evt.sourceId).catch((err) => this.log.warn({ event: "consult_failed", accountId: account.id, sourceId: evt.sourceId, err }, "consultation onOutbound failed"));
+    }
+  }
+
+  // Zalo refused the file. If a media archive is configured, store the original and send the
+  // customer a download link (recording it so the selfListen echo is deduped), then tell the
+  // agent a link was sent. If the archive is absent or the link send fails (e.g. OA window
+  // closed), fall back to the plain agent note. Never throws.
+  private async linkFallback(
+    evt: OutgoingEvent, accountId: number, threadId: string, zaloKind: ZaloThreadKind,
+    file: { filename: string; data: Buffer }, rejection: ZaloFileRejectedError,
+  ): Promise<void> {
+    const name = rejection.filename || file.filename;
+    // The note carries the original Zalo rejection reason verbatim (e.g. "OA upload failed:
+    // -210 ... must be smaller than or equal 1MB") so the agent knows why and how to fix it.
+    if (!this.archive) { await this.notify(evt, fileRejectedNote(evt, name, rejection)); return; }
+    try {
+      const key = `outbound/${evt.chatwootMessageId}/${sanitizeKeySegment(name)}`;
+      await this.archive.put(key, file.data, guessContentType(name));
+      const url = this.archive.urlFor(key);
+      const { msgId } = await this.sessions.sendText(accountId, threadId, zaloKind, customerLinkMessage(name, url));
+      await this.recordSent(accountId, msgId, threadId, evt.chatwootMessageId);
+      await this.notify(evt, linkSentNote(name));
+    } catch (err) {
+      this.log.warn({ event: "outbound_link_fallback_failed", accountId, chatwootMessageId: evt.chatwootMessageId, err }, "outbound link fallback failed");
+      await this.notify(evt, fileRejectedNote(evt, name, rejection));
     }
   }
 

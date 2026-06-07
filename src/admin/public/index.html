@@ -5,132 +5,224 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>ZaloCRM Bridge — Admin</title>
   <style>
-    :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --fg:#e7e9ee; --mut:#9aa3b2; --acc:#4f8cff; }
+    :root {
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --surface-soft: #eef2f6;
+      --line: #d8dee8;
+      --text: #18202d;
+      --muted: #667085;
+      --accent: #2563eb;
+      --accent-strong: #1d4ed8;
+      --danger: #b42318;
+      --success: #067647;
+      --warning: #b54708;
+      --info: #175cd3;
+      --shadow: 0 18px 45px rgba(16, 24, 40, 0.12);
+    }
     * { box-sizing: border-box; }
-    body { margin:0; font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
-    .wrap { max-width:880px; margin:0 auto; padding:24px 16px; }
-    h1 { font-size:20px; margin:0 0 16px; }
-    h2 { font-size:16px; margin:24px 0 12px; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
-    label { display:block; font-size:13px; color:var(--mut); margin:10px 0 4px; }
-    input, select { width:100%; padding:9px 10px; background:#11141a; border:1px solid var(--line); border-radius:7px; color:var(--fg); }
-    button { padding:9px 14px; border:0; border-radius:7px; background:var(--acc); color:#fff; cursor:pointer; font-weight:600; }
-    button.sec { background:#2a2f3a; }
-    button.danger { background:#7a2230; }
-    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .mut { color:var(--mut); font-size:13px; }
-    .acct { border-top:1px solid var(--line); padding:12px 0; }
-    .hidden { display:none; }
-    .topbar { display:flex; justify-content:space-between; align-items:center; }
-    .msg { margin-top:8px; font-size:13px; }
-    .msg.err { color:#ff6b6b; } .msg.ok { color:#52c785; }
-    .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap; }
-    .badge.ok { background:rgba(82,199,133,.16); color:#52c785; }
-    .badge.warn { background:rgba(240,180,70,.16); color:#f0b446; }
-    .badge.off { background:rgba(154,163,178,.16); color:#9aa3b2; }
-    .badge.err { background:rgba(255,107,107,.16); color:#ff6b6b; }
-    .badge.info { background:rgba(79,140,255,.16); color:#4f8cff; }
-    table.logs { width:100%; border-collapse:collapse; font-size:13px; }
-    table.logs th, table.logs td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
-    table.logs tr.lvl-warn { background:rgba(240,180,70,.06); }
-    table.logs tr.lvl-err { background:rgba(255,107,107,.07); }
-    .logctx { white-space:pre-wrap; word-break:break-word; color:var(--mut); margin:4px 0 0; font-size:12px; }
-    .cfg-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-    .acct-name { font-size:15px; }
+    body { margin: 0; font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+    .hidden { display: none !important; }
+    .app-shell { max-width: 1180px; margin: 0 auto; padding: 20px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+    .topbar h1 { margin: 0; font-size: 24px; line-height: 1.15; letter-spacing: 0; }
+    .eyebrow { margin: 0 0 2px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+    .topbar-actions, .panel-header, .toolbar, .input-action { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .panel-header { justify-content: space-between; margin-bottom: 14px; }
+    .panel-header h2, .section-block h3 { margin: 0; letter-spacing: 0; }
+    .muted, .mut { color: var(--muted); font-size: 13px; }
+    .auth-card, .console, .section-block, .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 1px 2px rgba(16, 24, 40, .04); }
+    .auth-card { max-width: 420px; margin: 48px auto; padding: 22px; }
+    .auth-card h2 { margin: 0 0 6px; }
+    .console { padding: 14px; }
+    .section-block, .card { padding: 14px; box-shadow: none; }
+    .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); margin: -2px -2px 16px; padding: 0 2px 10px; }
+    .tab { border: 0; background: transparent; color: var(--muted); padding: 9px 12px; border-radius: 7px; cursor: pointer; font-weight: 700; }
+    .tab.active { background: var(--surface-soft); color: var(--text); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    label { display: block; color: var(--muted); font-size: 13px; font-weight: 650; margin: 10px 0 5px; }
+    input, select, textarea { width: 100%; min-height: 38px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--text); padding: 8px 10px; font: inherit; }
+    input:focus, select:focus, textarea:focus { outline: 2px solid rgba(37, 99, 235, .18); border-color: var(--accent); }
+    button, .button { min-height: 38px; border: 0; border-radius: 7px; padding: 8px 12px; cursor: pointer; font-weight: 750; white-space: nowrap; }
+    .button:disabled, .button.is-busy { opacity: .62; cursor: wait; }
+    .button-primary { background: var(--accent); color: #fff; }
+    .button-primary:hover { background: var(--accent-strong); }
+    .button-secondary, .sec { background: var(--surface-soft); color: var(--text); border: 1px solid var(--line); }
+    .button-danger, .danger { background: #fee4e2; color: var(--danger); border: 1px solid #fecdca; }
+    .full-width { width: 100%; margin-top: 14px; }
+    .message, .msg { min-height: 20px; margin-top: 8px; font-size: 13px; }
+    .message.ok, .msg.ok { color: var(--success); }
+    .message.err, .msg.err { color: var(--danger); }
+    .empty-state { padding: 18px; color: var(--muted); }
+    .empty-state.error, .text-danger { color: var(--danger); }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .summary-card { background: var(--surface-soft); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+    .summary-card strong { display: block; font-size: 22px; line-height: 1.1; }
+    .account-list, .logs-box { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+    .account-table, .logs-table, table.logs { width: 100%; border-collapse: collapse; min-width: 760px; }
+    .account-table th, .account-table td, .logs-table th, .logs-table td, table.logs th, table.logs td { text-align: left; border-bottom: 1px solid var(--line); padding: 10px; vertical-align: top; }
+    .account-table th, .logs-table th, table.logs th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; background: #fafbfc; }
+    .account-table tr:last-child td, .logs-table tr:last-child td, table.logs tr:last-child td { border-bottom: 0; }
+    .acct { border-bottom: 1px solid var(--line); padding: 12px; }
+    .acct:last-child { border-bottom: 0; }
+    .acct-name { font-size: 15px; }
+    .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .badge { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+    .badge.ok { background: #dcfae6; color: var(--success); }
+    .badge.warn { background: #fef0c7; color: var(--warning); }
+    .badge.off { background: #eef2f6; color: var(--muted); }
+    .badge.err { background: #fee4e2; color: var(--danger); }
+    .badge.info { background: #dbeafe; color: var(--info); }
+    .row-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+    .compact-field { margin: 0; min-width: 180px; }
+    .notice-list { display: grid; gap: 8px; margin-bottom: 12px; }
+    .notice { border: 1px solid #fedf89; background: #fffaeb; color: #93370d; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+    .drawer-backdrop { position: fixed; inset: 0; background: rgba(16, 24, 40, .36); z-index: 20; }
+    .drawer { position: fixed; top: 0; right: 0; width: min(460px, 100%); height: 100vh; overflow: auto; background: var(--surface); box-shadow: var(--shadow); z-index: 21; padding: 20px; }
+    .drawer-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
+    .drawer-header h3 { margin: 0; font-size: 18px; }
+    .drawer-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+    .check-row { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 700; }
+    .check-row input { width: auto; min-height: auto; }
+    .qr-image { width: min(260px, 100%); height: auto; display: block; margin: 8px auto; }
+    .logctx { white-space: pre-wrap; word-break: break-word; color: var(--muted); margin: 6px 0 0; font-size: 12px; }
+    @media (max-width: 760px) {
+      .app-shell { padding: 14px; }
+      .topbar, .panel-header { align-items: flex-start; }
+      .summary-grid, .settings-grid { grid-template-columns: 1fr; }
+      .tabs { overflow-x: auto; }
+      .toolbar { align-items: stretch; }
+      .compact-field { min-width: 100%; }
+      .drawer { width: 100%; }
+      .button { width: auto; }
+    }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="topbar">
-      <h1>ZaloCRM Bridge — Admin</h1>
-      <button id="logoutBtn" class="sec hidden" onclick="logout()">Đăng xuất</button>
-    </div>
-
-    <div id="setupView" class="card hidden">
-      <h2>Tạo tài khoản admin</h2>
-      <p class="mut">Chưa có admin nào. Đặt tài khoản đầu tiên để quản trị bridge.</p>
-      <label>Tên đăng nhập</label><input id="su_user" autocomplete="username" />
-      <label>Mật khẩu (≥ 8 ký tự)</label><input id="su_pass" type="password" autocomplete="new-password" />
-      <div style="margin-top:12px"><button onclick="doSetup()">Tạo & đăng nhập</button></div>
-      <div id="setupMsg" class="msg"></div>
-    </div>
-
-    <div id="loginView" class="card hidden">
-      <h2>Đăng nhập</h2>
-      <label>Tên đăng nhập</label><input id="li_user" autocomplete="username" />
-      <label>Mật khẩu</label><input id="li_pass" type="password" autocomplete="current-password" />
-      <div style="margin-top:12px"><button onclick="doLogin()">Đăng nhập</button></div>
-      <div id="loginMsg" class="msg"></div>
-    </div>
-
-    <div id="dash" class="hidden">
-      <div class="card">
-        <h2>Tài khoản Zalo</h2>
-        <div id="accounts"></div>
-        <h2>Thêm tài khoản</h2>
-        <div class="row">
-          <select id="newType" style="max-width:160px">
-            <option value="personal">Cá nhân (QR)</option>
-            <option value="oa">Official Account</option>
-          </select>
-          <input id="newLabel" placeholder="Nhãn" style="max-width:180px" />
-          <input id="newInboxIdent" placeholder="Inbox identifier" style="max-width:200px" />
-          <input id="newInboxId" placeholder="Inbox ID (số)" style="max-width:140px" />
-          <button onclick="createAccount()">Thêm</button>
-        </div>
-        <div id="addMsg" class="msg"></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">ZaloCRM Bridge</p>
+        <h1>Admin Console</h1>
       </div>
-
-      <div class="card">
-        <h2 style="margin:0 0 4px">Webhook URLs</h2>
-        <p class="mut">Dán các URL này vào nơi tương ứng để bridge nhận/gửi tin.</p>
-        <label>Chatwoot inbox → bridge (mỗi inbox: Configuration → Webhook URL)</label>
-        <div class="row"><input id="wh_chatwoot" readonly style="flex:1;min-width:0" /><button class="sec" onclick="copyWebhook('wh_chatwoot')">Copy</button></div>
-        <label>Zalo OA → bridge (Zalo OA Developer console)</label>
-        <div class="row"><input id="wh_oa" readonly style="flex:1;min-width:0" /><button class="sec" onclick="copyWebhook('wh_oa')">Copy</button></div>
-        <div id="whMsg" class="msg"></div>
+      <div class="topbar-actions">
+        <span id="sessionState" class="muted hidden">Đã đăng nhập</span>
+        <button id="logoutBtn" class="button button-secondary hidden" type="button" onclick="logout()">Đăng xuất</button>
       </div>
+    </header>
 
-      <div class="card">
-        <div class="cfg-head">
-          <h2 style="margin:0">Cấu hình</h2>
-          <button id="cfgToggle" class="sec" onclick="toggleConfig()">Hiện cấu hình</button>
-        </div>
-        <div id="cfgBody" class="hidden">
-          <p class="mut">Chỉ cần đặt một lần. Lưu sẽ khởi động lại bridge để áp dụng (~5–10s).</p>
-          <label>Chatwoot Account ID</label><input id="cfg_chatwoot_account_id" />
-          <label>Chatwoot API Access Token</label><input id="cfg_chatwoot_api_access_token" type="password" placeholder="(đang đặt — để trống nếu giữ nguyên)" />
-          <label>Zalo OA App ID</label><input id="cfg_zalo_oa_app_id" />
-          <label>Zalo OA App Secret</label><input id="cfg_zalo_oa_app_secret" type="password" placeholder="(đang đặt — để trống nếu giữ nguyên)" />
-          <label>Zalo OA Secret Key (ký webhook)</label><input id="cfg_zalo_oa_secret_key" type="password" placeholder="(đang đặt — để trống nếu giữ nguyên)" />
-          <label>Zalo OA OAuth Redirect</label><input id="cfg_zalo_oa_oauth_redirect" />
-          <div style="margin-top:12px"><button onclick="saveSettings()">Lưu & áp dụng</button></div>
-          <div id="cfgMsg" class="msg"></div>
-        </div>
-      </div>
+    <main>
+      <section id="setupView" class="auth-card hidden">
+        <h2>Tạo tài khoản admin</h2>
+        <p class="muted">Chưa có admin nào. Đặt tài khoản đầu tiên để quản trị bridge.</p>
+        <label for="su_user">Tên đăng nhập</label>
+        <input id="su_user" autocomplete="username" />
+        <label for="su_pass">Mật khẩu</label>
+        <input id="su_pass" type="password" autocomplete="new-password" placeholder="Tối thiểu 8 ký tự" />
+        <button class="button button-primary full-width" type="button" onclick="doSetup()">Tạo & đăng nhập</button>
+        <div id="setupMsg" class="message"></div>
+      </section>
 
-      <div class="card">
-        <div class="cfg-head">
-          <h2 style="margin:0">Nhật ký (Logs)</h2>
-          <button class="sec" onclick="loadLogs()">Tải lại</button>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <select id="logLevel" style="max-width:160px" onchange="loadLogs()">
-            <option value="">Tất cả</option>
-            <option value="40">Cảnh báo trở lên</option>
-            <option value="50">Chỉ lỗi</option>
-          </select>
-          <select id="logAccount" style="max-width:200px" onchange="loadLogs()">
-            <option value="">Mọi tài khoản</option>
-          </select>
-          <button class="sec" onclick="copyLogs()">Copy</button>
-          <button class="sec" onclick="exportLogs()">Export JSON</button>
-        </div>
-        <div id="logsMsg" class="msg"></div>
-        <div id="logsBox" style="margin-top:8px;overflow-x:auto"></div>
-      </div>
-    </div>
+      <section id="loginView" class="auth-card hidden">
+        <h2>Đăng nhập</h2>
+        <label for="li_user">Tên đăng nhập</label>
+        <input id="li_user" autocomplete="username" />
+        <label for="li_pass">Mật khẩu</label>
+        <input id="li_pass" type="password" autocomplete="current-password" />
+        <button class="button button-primary full-width" type="button" onclick="doLogin()">Đăng nhập</button>
+        <div id="loginMsg" class="message"></div>
+      </section>
+
+      <section id="dash" class="console hidden">
+        <nav class="tabs" aria-label="Admin sections">
+          <button id="tab_accounts_btn" class="tab active" type="button" onclick="setTab('accounts')">Tài khoản</button>
+          <button id="tab_logs_btn" class="tab" type="button" onclick="setTab('logs')">Logs</button>
+          <button id="tab_settings_btn" class="tab" type="button" onclick="setTab('settings')">Cấu hình</button>
+        </nav>
+
+        <section id="tab_accounts" class="tab-panel active">
+          <div class="panel-header">
+            <div>
+              <h2>Tài khoản Zalo</h2>
+              <p class="muted">Theo dõi trạng thái kết nối và thao tác nhanh.</p>
+            </div>
+            <button class="button button-primary" type="button" onclick="openAddAccountPanel()">Thêm tài khoản</button>
+          </div>
+          <div id="accountSummary" class="summary-grid"></div>
+          <div id="recentIssues" class="notice-list"></div>
+          <div id="accounts" class="account-list"></div>
+          <div id="accountMsg" class="message"></div>
+        </section>
+
+        <section id="tab_logs" class="tab-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Nhật ký</h2>
+              <p class="muted">Lọc lỗi, copy log, hoặc export JSON để debug.</p>
+            </div>
+            <button class="button button-secondary" type="button" onclick="loadLogs()">Tải lại</button>
+          </div>
+          <div class="toolbar">
+            <label class="compact-field">Mức
+              <select id="logLevel" onchange="loadLogs()">
+                <option value="">Tất cả</option>
+                <option value="40">Cảnh báo trở lên</option>
+                <option value="50">Chỉ lỗi</option>
+              </select>
+            </label>
+            <label class="compact-field">Tài khoản
+              <select id="logAccount" onchange="loadLogs()">
+                <option value="">Mọi tài khoản</option>
+              </select>
+            </label>
+            <button class="button button-secondary" type="button" onclick="copyLogs()">Copy</button>
+            <button class="button button-secondary" type="button" onclick="exportLogs()">Export JSON</button>
+          </div>
+          <div id="logsMsg" class="message"></div>
+          <div id="logsBox" class="logs-box"></div>
+        </section>
+
+        <section id="tab_settings" class="tab-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Cấu hình</h2>
+              <p class="muted">Thiết lập Chatwoot, Zalo OA, và webhook URL.</p>
+            </div>
+          </div>
+          <div id="settingsGrid" class="settings-grid">
+            <section class="section-block">
+              <h3>Chatwoot</h3>
+              <label for="cfg_chatwoot_base_url">Base URL</label><input id="cfg_chatwoot_base_url" placeholder="http://chatwoot-rails:3000" />
+              <label for="cfg_chatwoot_account_id">Account ID</label><input id="cfg_chatwoot_account_id" />
+              <label for="cfg_chatwoot_api_access_token">API Access Token</label><input id="cfg_chatwoot_api_access_token" type="password" />
+            </section>
+            <section class="section-block">
+              <h3>Zalo OA</h3>
+              <label for="cfg_zalo_oa_app_id">App ID</label><input id="cfg_zalo_oa_app_id" />
+              <label for="cfg_zalo_oa_app_secret">App Secret</label><input id="cfg_zalo_oa_app_secret" type="password" />
+              <label for="cfg_zalo_oa_secret_key">Secret Key</label><input id="cfg_zalo_oa_secret_key" type="password" />
+              <label for="cfg_zalo_oa_oauth_redirect">OAuth Redirect</label><input id="cfg_zalo_oa_oauth_redirect" />
+            </section>
+            <section class="section-block">
+              <h3>Webhook URLs</h3>
+              <label for="wh_chatwoot">Chatwoot inbox webhook</label>
+              <div class="input-action"><input id="wh_chatwoot" readonly /><button class="button button-secondary" type="button" onclick="copyWebhook('wh_chatwoot')">Copy</button></div>
+              <label for="wh_oa">Zalo OA webhook</label>
+              <div class="input-action"><input id="wh_oa" readonly /><button class="button button-secondary" type="button" onclick="copyWebhook('wh_oa')">Copy</button></div>
+              <div id="whMsg" class="message"></div>
+            </section>
+          </div>
+          <button class="button button-primary" type="button" onclick="saveSettings()">Lưu & áp dụng</button>
+          <div id="cfgMsg" class="message"></div>
+        </section>
+      </section>
+    </main>
   </div>
+
+  <div id="drawerBackdrop" class="drawer-backdrop hidden" onclick="closeDrawer()"></div>
+  <aside id="drawer" class="drawer hidden" aria-live="polite"></aside>
   <script src="/admin/admin.js"></script>
 </body>
 </html>

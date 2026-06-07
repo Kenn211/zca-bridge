@@ -19,10 +19,20 @@ describe("resolveSettings", () => {
     expect(cfg.chatwootApiAccessToken).toBe("DBTOK");
   });
 
+  it("lets DB override chatwoot base url and trims a trailing slash", async () => {
+    const cfg = await resolveSettings(src({ chatwoot_base_url: "http://chatwoot-db:3000/" }), envCfg);
+    expect(cfg.chatwootBaseUrl).toBe("http://chatwoot-db:3000");
+  });
+
   it("falls back to env when DB is empty", async () => {
     const cfg = await resolveSettings(src({}), envCfg);
     expect(cfg.chatwootApiAccessToken).toBe("ENVTOK");
     expect(cfg.chatwootAccountId).toBe(9);
+  });
+
+  it("falls back to env chatwoot base url when DB base url is empty", async () => {
+    const cfg = await resolveSettings(src({}), envCfg);
+    expect(cfg.chatwootBaseUrl).toBe("x");
   });
 
   it("builds oa from DB values", async () => {

@@ -194,8 +194,7 @@ describe("OutboundHandler", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
-  // TODO(quarantine, 2026-06-05): drifted from src — archive/download-link fallback changed. Restore when reconciled.
-  it.skip("archives the file and sends the customer a download link when Zalo rejects it", async () => {
+  it("archives the file and sends the customer a download link when Zalo rejects it", async () => {
     agent.get("http://chatwoot").intercept({ path: "/big.pdf", method: "GET" })
       .reply(200, Buffer.from("PDFBYTES"), { headers: { "content-type": "application/pdf" } });
     const d = deps();
@@ -213,8 +212,7 @@ describe("OutboundHandler", () => {
     expect(d.mapping.recordIfNew).toHaveBeenCalledTimes(1); // the link message is recorded
   });
 
-  // TODO(quarantine, 2026-06-05): drifted from src — agent-note fallback changed. Restore when reconciled.
-  it.skip("falls back to the agent note when the customer link message also fails", async () => {
+  it("falls back to the agent note when the customer link message also fails", async () => {
     agent.get("http://chatwoot").intercept({ path: "/big.pdf", method: "GET" })
       .reply(200, Buffer.from("PDFBYTES"), { headers: { "content-type": "application/pdf" } });
     const d = deps();
@@ -229,6 +227,62 @@ describe("OutboundHandler", () => {
     expect(archive.put).toHaveBeenCalledTimes(1);
     expect(notify).toHaveBeenCalledTimes(1);
     expect(String(notify.mock.calls[0][1])).toMatch(/Không gửi được tệp/);
+    expect(d.mapping.recordIfNew).not.toHaveBeenCalled();
+  });
+
+  it("notifies and does NOT retry when a text send is permanently rejected by Zalo", async () => {
+    const d = deps();
+    const { OaPermanentError } = await import("../../src/zalo-oa/sender.js");
+    d.sessions.sendText = vi.fn(async () => { throw new OaPermanentError(-211, "OA send failed: -211 Out of quota"); });
+    const notify = vi.fn(async () => {});
+    const h = new OutboundHandler(d.sessions as any, d.accounts as any, (id) => d.inboxIndex.get(id) ?? null, d.mapping as any, "http://chatwoot", undefined, undefined, undefined, notify);
+    await h.handle({ sourceId: "user:84900", content: "hi", chatwootMessageId: 31, inboxId: 3, attachments: [] });
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(String(notify.mock.calls[0][1])).toContain("Out of quota");
+    expect(d.mapping.recordIfNew).not.toHaveBeenCalled();
+  });
+
+  it("notifies and keeps going when an attachment send is permanently rejected", async () => {
+    const pool = agent.get("http://chatwoot");
+    pool.intercept({ path: "/a.jpg", method: "GET" }).reply(200, Buffer.from("img"), { headers: { "content-type": "image/jpeg" } });
+    pool.intercept({ path: "/b.jpg", method: "GET" }).reply(200, Buffer.from("img"), { headers: { "content-type": "image/jpeg" } });
+    const d = deps();
+    const { OaPermanentError } = await import("../../src/zalo-oa/sender.js");
+    let call = 0;
+    d.sessions.sendAttachment = vi.fn(async () => { call++; if (call === 1) throw new OaPermanentError(-248, "OA send failed: -248 policy"); return { msgId: "z9" }; });
+    const notify = vi.fn(async () => {});
+    const h = new OutboundHandler(d.sessions as any, d.accounts as any, (id) => d.inboxIndex.get(id) ?? null, d.mapping as any, "http://chatwoot", undefined, undefined, undefined, notify);
+    await h.handle({ sourceId: "user:84900", content: "", chatwootMessageId: 32, inboxId: 3, attachments: [
+      { dataUrl: "http://chatwoot/a.jpg", fileType: "image" },
+      { dataUrl: "http://chatwoot/b.jpg", fileType: "image" },
+    ] });
+    expect(d.sessions.sendAttachment).toHaveBeenCalledTimes(2);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(String(notify.mock.calls[0][1])).toContain("policy");
+    expect(d.mapping.recordIfNew).toHaveBeenCalledTimes(1); // only the successful attachment
+  });
+
+  it("passes the error to onWindowBlocked so the window note can show the reason", async () => {
+    const d = deps();
+    const { OaWindowError } = await import("../../src/zalo-oa/sender.js");
+    d.sessions.sendText = vi.fn(async () => { throw new OaWindowError("OA send failed: -230 no interaction in 7 days"); });
+    const onWindowBlocked = vi.fn(async () => {});
+    const h = new OutboundHandler(d.sessions as any, d.accounts as any, (id) => d.inboxIndex.get(id) ?? null, d.mapping as any, "http://chatwoot", onWindowBlocked);
+    await h.handle({ sourceId: "user:84900", content: "hi", chatwootMessageId: 33, inboxId: 3, attachments: [] });
+    expect(onWindowBlocked).toHaveBeenCalledTimes(1);
+    expect(String(onWindowBlocked.mock.calls[0][1])).toContain("-230");
+    expect(d.mapping.recordIfNew).not.toHaveBeenCalled();
+  });
+
+  it("propagates a transient OaSendError so the queue retries (no notify)", async () => {
+    const d = deps();
+    const { OaSendError } = await import("../../src/zalo-oa/sender.js");
+    d.sessions.sendText = vi.fn(async () => { throw new OaSendError(-32, "OA send failed: -32 rate limit"); });
+    const notify = vi.fn(async () => {});
+    const h = new OutboundHandler(d.sessions as any, d.accounts as any, (id) => d.inboxIndex.get(id) ?? null, d.mapping as any, "http://chatwoot", undefined, undefined, undefined, notify);
+    await expect(h.handle({ sourceId: "user:84900", content: "hi", chatwootMessageId: 34, inboxId: 3, attachments: [] }))
+      .rejects.toBeInstanceOf(OaSendError);
+    expect(notify).not.toHaveBeenCalled();
     expect(d.mapping.recordIfNew).not.toHaveBeenCalled();
   });
 });

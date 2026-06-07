@@ -12,9 +12,14 @@ function build(getAll: () => Promise<Record<string, string>>) {
 
 describe("settings routes", () => {
   it("GET masks secrets and returns plain non-secrets", async () => {
-    const { app } = build(async () => ({ chatwoot_account_id: "1", chatwoot_api_access_token: "tok" }));
+    const { app } = build(async () => ({
+      chatwoot_base_url: "http://chatwoot:3000",
+      chatwoot_account_id: "1",
+      chatwoot_api_access_token: "tok",
+    }));
     const res = await app.inject({ method: "GET", url: "/admin/api/settings" });
     expect(res.json()).toEqual({
+      chatwoot_base_url: "http://chatwoot:3000",
       chatwoot_account_id: "1",
       chatwoot_api_access_token: { set: true },
       zalo_oa_app_id: "",
@@ -28,10 +33,16 @@ describe("settings routes", () => {
     const { app, settings, onApply } = build(async () => ({}));
     const res = await app.inject({
       method: "POST", url: "/admin/api/settings",
-      payload: { chatwoot_account_id: "2", chatwoot_api_access_token: "", zalo_oa_app_secret: "newsecret" },
+      payload: {
+        chatwoot_base_url: "http://chatwoot:3000",
+        chatwoot_account_id: "2",
+        chatwoot_api_access_token: "",
+        zalo_oa_app_secret: "newsecret",
+      },
     });
     expect(res.json()).toMatchObject({ ok: true, restarting: true });
     expect(settings.setMany).toHaveBeenCalledWith([
+      { key: "chatwoot_base_url", value: "http://chatwoot:3000", isSecret: false },
       { key: "chatwoot_account_id", value: "2", isSecret: false },
       { key: "zalo_oa_app_secret", value: "newsecret", isSecret: true },
     ]);
