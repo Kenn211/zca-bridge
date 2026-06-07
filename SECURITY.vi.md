@@ -2,28 +2,57 @@
 
 # Chính sách bảo mật
 
-## Báo cáo lỗ hổng bảo mật
+## Báo cáo lỗ hổng
 
-Vui lòng báo cáo các vấn đề bảo mật một cách riêng tư tới **diendh2014@gmail.com**. Không mở issue công khai cho các lỗ hổng bảo mật. Hãy cung cấp các bước tái hiện và mức độ ảnh hưởng; bạn sẽ nhận được phản hồi trong vòng vài ngày.
+Vui lòng báo cáo vấn đề bảo mật riêng tư tới **diendh2014@gmail.com**. Không mở issue công khai cho
+lỗ hổng bảo mật. Hãy gửi các bước tái hiện, phạm vi ảnh hưởng, log đã che thông tin nhạy cảm và phiên
+bản/commit đang dùng; maintainer sẽ phản hồi trong vòng vài ngày.
 
-## Các phiên bản được hỗ trợ
+## Phiên bản được hỗ trợ
 
-Đây là dự án đang trong giai đoạn đầu. Các bản vá bảo mật nhắm vào `main` mới nhất và bản tagged release gần nhất.
+Đây là dự án giai đoạn đầu. Bản vá bảo mật nhắm vào `main` mới nhất và bản release/tag gần nhất.
 
-## Rủi ro khi dùng API Zalo không chính thức (đọc trước)
+## Rủi ro Zalo cá nhân
 
-Tài khoản Zalo cá nhân được kết nối qua [`zca-js`](https://github.com/RFS-ADRENO/zca-js) — một thư viện **không chính thức**. Dùng API không chính thức có thể khiến tài khoản Zalo bị **khóa hoặc cấm vĩnh viễn**. Hãy cân nhắc kỹ và **tự chịu rủi ro** — nên dùng tài khoản phụ, không dùng cho tài khoản quan trọng. Riêng kênh Official Account (OA) dùng API chính thức của Zalo nên không thuộc rủi ro này.
+Kênh tài khoản Zalo cá nhân dùng [`zca-js`](https://github.com/RFS-ADRENO/zca-js), một thư viện
+**không chính thức**. Dùng API không chính thức có thể khiến tài khoản Zalo bị hạn chế, khóa hoặc cấm
+vĩnh viễn. Nên dùng tài khoản phụ, không dùng tài khoản quan trọng hoặc có dữ liệu nhạy cảm.
 
-## Xử lý thông tin bí mật và dữ liệu nhạy cảm
+Kênh Zalo Official Account (OA) dùng API chính thức của Zalo và không thuộc rủi ro từ `zca-js`.
 
-- **Mã hóa thông tin xác thực:** Thông tin xác thực phiên Zalo được mã hóa lúc lưu trữ bằng AES-256-GCM thông qua `CREDENTIALS_KEY` (một khóa hex 32 byte, tạo bằng `openssl rand -hex 32`). Không bao giờ commit khóa thật; `.env` đã được gitignore.
-- **Admin API:** Bảo vệ `/admin/api/*` bằng `ADMIN_TOKEN`.
-- **Xác thực webhook:** Dùng `WEBHOOK_SECRET` cho đường dẫn webhook Chatwoot và `ZALO_OA_SECRET_KEY` để xác minh chữ ký MAC của các OA webhook đến.
-- **Media:** Các tệp đính kèm được lưu trữ cục bộ; media quá lớn được phục vụ qua các link `/media` có token với TTL tùy chọn (`MEDIA_TOKEN_TTL_DAYS`).
-- **Cơ sở dữ liệu:** Chạy một PostgreSQL riêng cho bridge, tách biệt khỏi DB của Chatwoot.
+## Secret và dữ liệu nhạy cảm
 
-## Hướng dẫn vận hành
+- **Không commit secret:** không đưa `.env`, token thật, app secret, session Zalo, cookie, private key,
+  database dump hoặc log chứa dữ liệu khách hàng vào git.
+- **Mã hóa credentials:** session Zalo và setting nhạy cảm được mã hóa lúc lưu bằng AES-256-GCM thông
+  qua `CREDENTIALS_KEY`. Khóa này phải là 64 ký tự hex, tạo bằng `openssl rand -hex 32`.
+- **Admin UI:** admin dashboard dùng tài khoản admin tạo lần đầu và cookie phiên ký bằng secret dẫn
+  xuất từ `CREDENTIALS_KEY`. Mật khẩu admin phải tối thiểu 8 ký tự; vẫn nên đặt bridge sau HTTPS và
+  reverse proxy có kiểm soát truy cập nếu expose ra Internet.
+- **Webhook Chatwoot:** dùng `WEBHOOK_SECRET` để URL webhook có secret path riêng.
+- **Webhook Zalo OA:** dùng `ZALO_OA_SECRET_KEY` để verify MAC signature của webhook OA.
+- **Media:** attachment được archive cục bộ; file lớn phục vụ qua `/media/:token` với TTL tùy chọn
+  (`MEDIA_TOKEN_TTL_DAYS`). Không chia sẻ link media ra ngoài phạm vi cần thiết.
+- **Database:** dùng PostgreSQL riêng cho bridge, tách khỏi database của Chatwoot.
 
-- Đặt bridge sau HTTPS tại `PUBLIC_BASE_URL`.
-- Xoay vòng `CREDENTIALS_KEY`, `ADMIN_TOKEN`, và `WEBHOOK_SECRET` nếu chúng có thể đã bị lộ.
-- Hàng đợi bền sẽ thử lại các lỗi tạm thời và chuyển vào dead-letter các lỗi vĩnh viễn, do đó một sự cố hoặc khởi động lại sẽ không làm mất hoặc bỏ sót tin nhắn.
+## Hướng dẫn vận hành an toàn
+
+- Dùng HTTPS cho `PUBLIC_BASE_URL`.
+- Giữ `/admin/`, `/webhooks/*` và `/media/*` sau reverse proxy đáng tin cậy.
+- Rotate `CREDENTIALS_KEY`, `WEBHOOK_SECRET`, `ZALO_OA_APP_SECRET`, `ZALO_OA_SECRET_KEY` và
+  `CHATWOOT_API_ACCESS_TOKEN` nếu nghi ngờ bị lộ.
+- Nếu rotate `CREDENTIALS_KEY`, cần kế hoạch đăng nhập lại hoặc migrate lại các secret đã mã hóa cũ.
+- Giới hạn quyền của Chatwoot access token ở mức cần thiết cho bridge.
+- Backup PostgreSQL và media archive theo cùng chính sách retention.
+
+## Kiểm tra lộ thông tin trước khi commit
+
+Chạy scan tối thiểu trước khi commit tài liệu hoặc cấu hình:
+
+```bash
+rg -n "BEGIN (RSA|OPENSSH|PRIVATE)|AKIA|ghp_|github_pat_|xox[baprs]-|sk-[A-Za-z0-9]|AIza" .
+rg -n "(password|secret|token|api[_-]?key|credential)" *.md .env.example docker-compose*.yml
+```
+
+Kết quả hợp lệ trong tài liệu chỉ nên là tên biến, placeholder hoặc test fixture giả. Nếu thấy giá trị
+thật, hãy xóa khỏi git history nếu đã commit và rotate secret ngay.

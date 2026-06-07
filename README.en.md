@@ -1,182 +1,209 @@
 # Zalo-Chatwoot Bridge
 
-![Zalo-Chatwoot Bridge](zalo-chatwoot.png)
-
 🇻🇳 Tiếng Việt: [README.md](README.md)
+
+![Zalo-Chatwoot Bridge](zalo-chatwoot.png)
 
 [![CI](https://github.com/diendh/zca-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/diendh/zca-bridge/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-A self-hosted sidecar that syncs [Zalo](https://zalo.me) conversations two-way with
-[Chatwoot](https://www.chatwoot.com). It supports both personal Zalo accounts (via
-[`zca-js`](https://github.com/RFS-ADRENO/zca-js), QR login) and Official Accounts (OA, via Zalo's
-official REST API), surfacing Zalo messages as a Chatwoot inbox so agents can send and receive
-without leaving their helpdesk. Package/technical name: `zca-bridge`.
+`zca-bridge` is a self-hosted sidecar that syncs [Zalo](https://zalo.me) conversations two-way with
+[Chatwoot](https://www.chatwoot.com). It turns Zalo into a Chatwoot inbox so agents can receive,
+send, note, and review conversation history from the helpdesk.
 
-Node 24 · TypeScript (ESM) · Fastify · PostgreSQL
+The default README is Vietnamese. This file is the English version.
 
-> This is an independent project. It is not owned by, sponsored by, or officially endorsed by Zalo, VNG, Chatwoot, or the `zca-js` developers.
+## Summary
 
-## Why this matters
+- **Zalo OA channel:** uses Zalo's official API, with OAuth, webhook handling, send/receive, backfill,
+  and selected customer-info request flows.
+- **Personal Zalo channel:** uses [`zca-js`](https://github.com/RFS-ADRENO/zca-js) and QR login.
+  This is an unofficial API path and can get accounts restricted or banned.
+- **Chatwoot:** receives outbound webhooks from Chatwoot and pushes inbound messages through the
+  Chatwoot APIs.
+- **Durable queue:** stores jobs in PostgreSQL, retries transient failures, and dead-letters permanent
+  failures.
+- **Media:** archives attachments locally; oversized files can be served through tokenized `/media`
+  links.
 
-Vietnamese support teams live on Zalo, but Zalo has no native Chatwoot integration, so agents end up
-juggling the Zalo app separately from their helpdesk. This bridge brings Zalo into Chatwoot as a
-normal inbox, self-hosted so conversation data stays on infrastructure you control.
+Node 24+ · TypeScript ESM · Fastify · PostgreSQL · Vitest · Docker
 
-## Use cases
+> This is an independent project. It is not owned by, sponsored by, or officially endorsed by Zalo,
+> VNG, Chatwoot, or the `zca-js` developers.
 
-- SMB and agency support teams consolidating channels in Chatwoot.
-- Teams already on Chatwoot who want to add Zalo without a SaaS middleman.
-- Businesses on Zalo OA wanting agent collaboration, notes, and history in Chatwoot.
-- Self-hosting for data residency and privacy.
+## Important Warning
 
-## ⚠️ Risk warning
+Personal Zalo accounts are connected through `zca-js`, an **unofficial** library. Using unofficial
+APIs may get a Zalo account restricted, locked, or permanently banned. Prefer a secondary account and
+do not use critical business accounts or accounts with sensitive data.
 
-Personal Zalo accounts are connected via [`zca-js`](https://github.com/RFS-ADRENO/zca-js) — an
-**unofficial** library. Using an unofficial API can get your Zalo account **locked or permanently
-banned**. Consider carefully and use it **at your own risk** — prefer a secondary account, and do
-not use it for critical accounts. This project provides no warranty and takes no responsibility if
-your account runs into trouble.
-
-> Using unofficial APIs may get your account restricted, locked, or permanently banned. Use it at your own risk.
-
-The **Official Account (OA)** channel uses Zalo's official API and is therefore **exempt** from this
-risk. See [SECURITY.md](SECURITY.md).
+The **Zalo Official Account (OA)** channel uses Zalo's official API and is not subject to the
+`zca-js` risk. See [SECURITY.md](SECURITY.md).
 
 ## Features
 
-- Two-way messaging Zalo ↔ Chatwoot (text, image, file, voice, video, sticker, location, and more).
-- Durable store-then-process queue with retry and dead-letter, so messages survive restarts.
-- Bidirectional echo/loop suppression via `message_map`.
-- Durable media archive (every attachment is backed up locally; oversized files are served via
-  tokenized links).
-- Quote/reply, reactions, and message recall for personal accounts; OA supports text quote-reply.
+- Two-way Zalo ↔ Chatwoot messaging.
+- Text, image, file, voice, video, sticker, location, and fallback handling for unknown content.
+- Echo/loop suppression through `message_map`.
+- Durable media archive and tokenized links for large files.
+- Quote/reply, reactions, and message recall for personal accounts.
+- Zalo OA OAuth, webhooks, image/file sending, OA image compression before upload, and startup backfill.
+- Admin dashboard at `/admin/` for first-run admin setup, Chatwoot/OA settings, account management,
+  QR login, webhook URLs, and logs.
 
 ## Architecture
 
-The bridge moves messages along two durable paths, both backed by a PostgreSQL job queue.
+- **Inbound:** personal Zalo (`zca-js`) or Zalo OA webhook/backfill → message classification →
+  PostgreSQL job queue → worker → Chatwoot Application/Platform API.
+- **Outbound:** Chatwoot webhook → PostgreSQL job queue → worker → personal Zalo sender or OA sender.
+- **Media:** attachments are downloaded into the local archive; files larger than the Chatwoot upload
+  cap are sent as `/media/:token` links.
+- **Settings:** sensitive admin UI settings are encrypted with `CREDENTIALS_KEY`.
 
-- **Inbound:** Zalo personal events (via the `zca-js` adapter) and OA webhooks → classify → durable
-  job queue (PostgreSQL) → worker → Chatwoot Application/Platform API.
-- **Outbound:** Chatwoot webhook → queue → worker → Zalo (personal sender / OA sender).
-- `message_map` suppresses echo loops between the two systems; media is archived locally and served
-  via tokenized links when needed.
+### Main Modules
 
-### Module map
-
-- `src/zalo` — personal adapter, classify, session, QR login.
-- `src/zalo-oa` — OA OAuth, webhook, sender, backfill.
-- `src/chatwoot` — client, webhook server.
-- `src/worker` + `src/store` — durable queue, repos, migrations.
-- `src/handlers` — inbound/outbound orchestration.
-- `src/admin` — admin API + dashboard.
-- `src/media` — archive + tokenized serving.
-
-## Documentation
-
-Full guides live in the [project wiki](https://github.com/diendh/zca-bridge/wiki) (English +
-Tiếng Việt):
-
-- [Installation](https://github.com/diendh/zca-bridge/wiki/Installation)
-- [Configuration](https://github.com/diendh/zca-bridge/wiki/Configuration) — full env var reference
-- [Architecture](https://github.com/diendh/zca-bridge/wiki/Architecture)
-- [Chatwoot setup](https://github.com/diendh/zca-bridge/wiki/Chatwoot-Setup)
-- [Zalo personal account](https://github.com/diendh/zca-bridge/wiki/Zalo-Personal-Account) · [Zalo OA setup](https://github.com/diendh/zca-bridge/wiki/Zalo-OA-Setup)
-- [Troubleshooting](https://github.com/diendh/zca-bridge/wiki/Troubleshooting)
+- `src/zalo` — personal Zalo adapter, message classification, session handling, QR login.
+- `src/zalo-oa` — OA OAuth, webhook, sender, backfill, signature verification, image compression.
+- `src/chatwoot` — client, Application API, webhook server, inbox provisioning.
+- `src/handlers` — inbound/outbound orchestration, failure notes, contact-info sync.
+- `src/worker` and `src/store` — durable queue, repositories, migrations.
+- `src/admin` — admin API, login, settings, webhook info, log dashboard.
+- `src/media` — archive and tokenized media serving.
 
 ## Requirements
 
-- **Bring your own Chatwoot** — this project does NOT bundle or distribute Chatwoot. Point the
-  bridge at your existing Chatwoot instance.
-- A dedicated PostgreSQL for the bridge, separate from Chatwoot's database. The bridge auto-runs
-  migrations on startup.
-- Node 24+ (or Docker).
+- An existing Chatwoot instance. This project **does not bundle or distribute Chatwoot**.
+- A dedicated PostgreSQL database for the bridge, separate from Chatwoot's database.
+- Node.js 24+ for direct runs, or Docker for container runs.
+- `PUBLIC_BASE_URL` must be an externally reachable bridge URL when using webhooks, OA, or an iframe.
 
-## Configuration
+## Quick Configuration
 
-Copy `.env.example` to `.env` and fill in the values (each variable is documented inline in
-`.env.example`). Minimum required: `DATABASE_URL`, `CHATWOOT_BASE_URL`, `CREDENTIALS_KEY`,
-`PUBLIC_BASE_URL`.
-
-## Run
-
-### Prebuilt image, no build (one file)
-
-Run the bridge and its Postgres straight from the published image — no source checkout needed. Grab
-just `docker-compose.full.yml` and a `.env`:
+Copy `.env.example` to `.env`, then fill in real values:
 
 ```bash
-cp .env.example .env   # set CHATWOOT_BASE_URL (your Chatwoot), CREDENTIALS_KEY, PUBLIC_BASE_URL...
+cp .env.example .env
+```
+
+Minimum variables:
+
+- `DATABASE_URL` — the bridge's dedicated PostgreSQL database.
+- `CHATWOOT_BASE_URL` — the Chatwoot URL reachable from the bridge.
+- `CREDENTIALS_KEY` — 32-byte hex encryption key, generated with `openssl rand -hex 32`.
+- `PUBLIC_BASE_URL` — public bridge URL, for example `https://bridge.example.com`.
+
+Recommended variables:
+
+- `CHATWOOT_API_ACCESS_TOKEN` and `CHATWOOT_ACCOUNT_ID` — required for automatic inbox provisioning,
+  importing messages sent from the native Zalo app, and posting private notes when outbound sends
+  permanently fail.
+- `WEBHOOK_SECRET` — adds a secret segment to the Chatwoot webhook URL.
+- `MEDIA_ARCHIVE_ROOT`, `MEDIA_TOKEN_TTL_DAYS`, `CHATWOOT_MAX_ATTACHMENT_MB` — media archive controls.
+- `ZALO_OA_APP_ID`, `ZALO_OA_APP_SECRET`, `ZALO_OA_SECRET_KEY`, `ZALO_OA_OAUTH_REDIRECT` — required
+  only for the OA channel.
+
+Never commit `.env`, real tokens, app secrets, Zalo sessions, or database dumps.
+
+## Run With Docker
+
+### Prebuilt Image
+
+Download `docker-compose.full.yml`, prepare `.env`, then run:
+
+```bash
+cp .env.example .env
 docker compose -f docker-compose.full.yml up -d
 ```
 
-Bridge: `http://localhost:4000`. Bring your own Chatwoot (point `CHATWOOT_BASE_URL` at it). The image
-is pulled from ghcr.io — the package must be public, or run `docker login ghcr.io` first.
+The bridge runs at `http://localhost:4000`. This compose file includes a dedicated PostgreSQL service
+for the bridge and pulls `ghcr.io/diendh/zca-bridge:latest`.
 
-### Docker Compose — build from source (bring your own Chatwoot)
+### Build From Source
 
 ```bash
-cp .env.example .env   # then edit .env
+cp .env.example .env
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-The compose file starts the bridge and its Postgres. Set `CHATWOOT_BASE_URL` to your Chatwoot.
+The example compose file only runs the bridge and its PostgreSQL database. You still need your own
+Chatwoot and must point `CHATWOOT_BASE_URL` at it.
 
-### Single container
+### Single Container
 
 ```bash
 docker run --env-file .env -p 4000:4000 ghcr.io/diendh/zca-bridge:latest
 ```
 
-Note: you still need a reachable PostgreSQL and Chatwoot.
+For single-container runs, `DATABASE_URL` and `CHATWOOT_BASE_URL` must point to services reachable
+from inside the container.
 
-### Direct
+## Run Directly
 
 ```bash
 npm ci
 npm run build
-npm start          # auto-runs migrations on startup, then listens on $PORT (default 4000)
+npm start
 ```
 
-## Test
+Migrations run automatically on startup. The bridge listens on `$PORT`, default `4000`.
+
+Development mode:
+
+```bash
+npm run dev
+```
+
+## First-Run Setup
+
+1. Open `PUBLIC_BASE_URL/admin/` or `http://localhost:4000/admin/`.
+2. Create the first admin user. Passwords must be at least 8 characters.
+3. In Settings, verify `CHATWOOT_BASE_URL`, Chatwoot account id/token, and OA settings if used.
+4. Create a bridge account:
+   - Personal Zalo: add an account, create or attach a Chatwoot inbox, start login, and scan the QR.
+   - Zalo OA: add an OA account, connect OA, and complete OAuth.
+5. Copy webhook URLs from the admin dashboard:
+   - Chatwoot webhook: configure it on the matching Chatwoot inbox.
+   - Zalo OA webhook: configure it in the Zalo developer console when OA is enabled.
+6. Send one inbound and one outbound test message to confirm mapping and echo suppression.
+
+## Tests
 
 ```bash
 npm test
 ```
 
-Tests run on Vitest. A few tests are quarantined as drifted from `src`; see [ROADMAP.md](ROADMAP.md).
+The test suite uses Vitest. If tests involving `sharp` fail to load the module, run `npm ci` again so
+native/optional dependencies are installed for the current platform, then rerun tests.
 
-## Security notes
+Some repository tests require `TEST_DATABASE_URL`; without it, those tests are intentionally skipped.
+See [ROADMAP.md](ROADMAP.md) for the current test debt.
 
-Credentials are encrypted at rest (`CREDENTIALS_KEY`, AES-256-GCM). Protect admin and webhook
-endpoints with `ADMIN_TOKEN` / `WEBHOOK_SECRET` / `ZALO_OA_SECRET_KEY`, and run a dedicated database.
-See [SECURITY.md](SECURITY.md).
+## Security And Leak Checks
 
-## Maintainer roadmap
+- Do not put real secrets in README files, issues, PRs, logs, or screenshots.
+- `CREDENTIALS_KEY` must be 64 hex characters and kept environment-specific.
+- The admin UI uses a first-run admin account and session cookies signed with a secret derived from
+  `CREDENTIALS_KEY`.
+- Use HTTPS for `PUBLIC_BASE_URL`, especially when exposing `/admin/`, `/webhooks/*`, and `/media/*`.
+- Use `WEBHOOK_SECRET` for Chatwoot webhooks and `ZALO_OA_SECRET_KEY` to verify OA webhooks.
+- Before committing documentation, scan with `rg` or a secret scanner and confirm only placeholders
+  and variable names are present.
 
-See [ROADMAP.md](ROADMAP.md).
+## Related Docs
 
-## How Codex will be used
+- [SECURITY.md](SECURITY.md) — security policy and safe operations.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guide.
+- [ROADMAP.md](ROADMAP.md) — roadmap and current test debt.
+- [CHANGELOG.md](CHANGELOG.md) — release history.
 
-I will use Codex to maintain zca-bridge more efficiently: reviewing pull requests, generating tests,
-improving TypeScript code quality, refactoring the Zalo/Chatwoot sync logic, checking webhook and
-queue reliability, improving Docker deployment, writing documentation, triaging issues, and reviewing
-security-sensitive areas such as tokens, webhooks, media uploads, retries, and API integrations.
+## Third Parties
 
-## Third-party notice
-
-This project integrates with and depends on third-party products:
-
-- [Chatwoot](https://www.chatwoot.com)
-- [Zalo](https://zalo.me)
-- [`zca-js`](https://github.com/RFS-ADRENO/zca-js)
-
-All brand names, logos, trademarks, and product names belong to their respective owners. Mentions of
-these third parties are for describing technical integration only.
+This project integrates with [Chatwoot](https://www.chatwoot.com), [Zalo](https://zalo.me), and
+[`zca-js`](https://github.com/RFS-ADRENO/zca-js). All brand names, logos, trademarks, and product names
+belong to their respective owners; mentions are for describing technical integration only.
 
 ## License
 
-Copyright 2026 Tom. Released under the [Apache License 2.0](LICENSE).
+Copyright 2026 Tom.
 
-This project is an independent bridge only. Chatwoot, Zalo, and `zca-js` belong to their respective
-owners.
+Released under the [Apache License 2.0](LICENSE).

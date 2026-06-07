@@ -2,40 +2,60 @@
 
 🇻🇳 Tiếng Việt: [SECURITY.vi.md](SECURITY.vi.md)
 
-## Reporting a vulnerability
+## Reporting Vulnerabilities
 
-Please report security issues privately to **diendh2014@gmail.com**. Do not open a public
-issue for vulnerabilities. Include reproduction steps and impact; expect an
-acknowledgement within a few days.
+Please report security issues privately to **diendh2014@gmail.com**. Do not open public issues for
+vulnerabilities. Include reproduction steps, impact, sanitized logs, and the version/commit in use;
+the maintainer will acknowledge within a few days.
 
-## Supported versions
+## Supported Versions
 
-This is an early-stage project. Security fixes target the latest `main` and the
-most recent tagged release.
+This is an early-stage project. Security fixes target the latest `main` and the most recent
+release/tag.
 
-## Unofficial Zalo API risk (read first)
+## Personal Zalo Risk
 
-Personal Zalo accounts are connected through [`zca-js`](https://github.com/RFS-ADRENO/zca-js),
-an **unofficial** library. Using an unofficial API can get a Zalo account
-**locked or permanently banned**. Use a secondary account, never a critical one,
-and accept the risk. The Official Account (OA) channel uses Zalo's official API
-and is not subject to this risk.
+The personal Zalo channel uses [`zca-js`](https://github.com/RFS-ADRENO/zca-js), an **unofficial**
+library. Using unofficial APIs may get a Zalo account restricted, locked, or permanently banned.
+Prefer a secondary account and do not use critical accounts or accounts with sensitive data.
 
-## Handling of secrets and sensitive data
+The Zalo Official Account (OA) channel uses Zalo's official API and is not subject to the `zca-js`
+risk.
 
-- **Credentials encryption:** Zalo session credentials are encrypted at rest with
-  AES-256-GCM using `CREDENTIALS_KEY` (a 32-byte hex key, `openssl rand -hex 32`).
-  Never commit a real key; `.env` is gitignored.
-- **Admin API:** Protect `/admin/api/*` with `ADMIN_TOKEN`.
-- **Webhook authenticity:** Use `WEBHOOK_SECRET` for the Chatwoot webhook path and
-  `ZALO_OA_SECRET_KEY` to verify the MAC signature of incoming OA webhooks.
-- **Media:** Attachments are archived locally; oversized media is served through
-  tokenized `/media` links with an optional TTL (`MEDIA_TOKEN_TTL_DAYS`).
-- **Database:** Run a dedicated PostgreSQL for the bridge, isolated from Chatwoot's DB.
+## Secrets And Sensitive Data
 
-## Operational guidance
+- **Do not commit secrets:** never commit `.env`, real tokens, app secrets, Zalo sessions, cookies,
+  private keys, database dumps, or logs containing customer data.
+- **Credentials encryption:** Zalo sessions and sensitive settings are encrypted at rest with
+  AES-256-GCM using `CREDENTIALS_KEY`. This key must be 64 hex characters, generated with
+  `openssl rand -hex 32`.
+- **Admin UI:** the admin dashboard uses a first-run admin account and session cookies signed with a
+  secret derived from `CREDENTIALS_KEY`. Admin passwords must be at least 8 characters; still run the
+  bridge behind HTTPS and a controlled reverse proxy when exposed to the Internet.
+- **Chatwoot webhook:** use `WEBHOOK_SECRET` so the webhook URL has a private secret path.
+- **Zalo OA webhook:** use `ZALO_OA_SECRET_KEY` to verify the MAC signature of incoming OA webhooks.
+- **Media:** attachments are archived locally; large files are served through `/media/:token` with an
+  optional TTL (`MEDIA_TOKEN_TTL_DAYS`). Do not share media links beyond their intended scope.
+- **Database:** run a dedicated PostgreSQL database for the bridge, isolated from Chatwoot's database.
 
-- Keep the bridge behind HTTPS at `PUBLIC_BASE_URL`.
-- Rotate `CREDENTIALS_KEY`, `ADMIN_TOKEN`, and `WEBHOOK_SECRET` if they may have leaked.
-- The durable queue retries transient failures and dead-letters permanent ones, so
-  a crash or restart does not lose or silently drop messages.
+## Safe Operations
+
+- Use HTTPS for `PUBLIC_BASE_URL`.
+- Keep `/admin/`, `/webhooks/*`, and `/media/*` behind a trusted reverse proxy.
+- Rotate `CREDENTIALS_KEY`, `WEBHOOK_SECRET`, `ZALO_OA_APP_SECRET`, `ZALO_OA_SECRET_KEY`, and
+  `CHATWOOT_API_ACCESS_TOKEN` if they may have leaked.
+- If rotating `CREDENTIALS_KEY`, plan to re-login or migrate previously encrypted secrets.
+- Limit the Chatwoot access token to the bridge's required permissions.
+- Back up PostgreSQL and the media archive under the same retention policy.
+
+## Leak Check Before Commit
+
+Run at least this scan before committing documentation or configuration:
+
+```bash
+rg -n "BEGIN (RSA|OPENSSH|PRIVATE)|AKIA|ghp_|github_pat_|xox[baprs]-|sk-[A-Za-z0-9]|AIza" .
+rg -n "(password|secret|token|api[_-]?key|credential)" *.md .env.example docker-compose*.yml
+```
+
+Valid documentation hits should only be variable names, placeholders, or fake test fixtures. If a real
+value appears, remove it from git history if already committed and rotate the secret immediately.

@@ -2,44 +2,66 @@
 
 🇻🇳 Tiếng Việt: [CONTRIBUTING.vi.md](CONTRIBUTING.vi.md)
 
-Thanks for your interest in improving zca-bridge.
+Thanks for your interest in improving zca-bridge. The project prefers small, focused, verified
+changes.
 
-## Prerequisites
+## Requirements
 
 - Node.js 24+
-- A PostgreSQL instance for local runs (separate from Chatwoot's DB)
-- Docker (optional, for the container workflow)
+- npm with the committed `package-lock.json`
+- A dedicated PostgreSQL instance if running the app or repository tests
+- Docker if using the compose/container workflow
 
-## Setup
+## Local Setup
 
 ```bash
 npm ci
-cp .env.example .env   # fill in DATABASE_URL, CHATWOOT_BASE_URL, CREDENTIALS_KEY, PUBLIC_BASE_URL
+cp .env.example .env
 npm run build
 npm test
 ```
 
-Run the dev server with `npm run dev` (watch mode). Migrations run automatically on
-startup; you can also run them with `npm run migrate`.
+After copying `.env`, fill at least `DATABASE_URL`, `CHATWOOT_BASE_URL`, `CREDENTIALS_KEY`, and
+`PUBLIC_BASE_URL`. Generate `CREDENTIALS_KEY` with:
+
+```bash
+openssl rand -hex 32
+```
+
+Do not commit `.env` or real secret values.
+
+## Development Run
+
+```bash
+npm run dev
+```
+
+The bridge runs migrations on startup. You can also run migrations manually:
+
+```bash
+npm run migrate
+```
 
 ## Tests
 
-- Run the suite with `npm test` (Vitest). Tests live under `test/` mirroring `src/`.
-- Add tests for new behavior. Prefer pure, dependency-free units where possible;
-  the existing suite mocks `pg` rather than hitting a real database.
-- Some tests are quarantined as drifted from `src` — see [ROADMAP.md](ROADMAP.md).
-  Do not un-skip them without reconciling the underlying code.
+- Run the full suite with `npm test`.
+- Some repository tests require `TEST_DATABASE_URL`; without it, they are intentionally skipped.
+- If tests involving `sharp` fail to load the module, run `npm ci` again so native/optional
+  dependencies are installed for the current platform, then rerun tests.
+- Add tests for new behavior. Prefer pure unit tests and mock external dependencies where reasonable.
 
-## Pull requests
+## Pull Requests
 
 1. Branch from `main`.
-2. Use [Conventional Commits](https://www.conventionalcommits.org/) for messages
-   (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`, `perf:`).
-3. Ensure `npm run build` and `npm test` pass before opening the PR (CI enforces this).
-4. Keep changes focused; describe what and why in the PR body.
+2. Use Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`, `ci:`, `perf:`.
+3. Run `npm run build` and `npm test` before opening the PR, or document why they are not passing.
+4. Keep PRs focused; describe the problem, fix, and impact.
+5. Do not include tokens, secrets, customer-data logs, or sensitive screenshots in PRs.
 
-## Code style
+## Code Style
 
-- TypeScript (ESM), Node 24. Keep files focused and small; prefer immutable updates.
-- Match the surrounding code's conventions. Validate input at system boundaries and
-  handle errors explicitly — never swallow them silently.
+- TypeScript ESM, Node 24.
+- Match the surrounding code style.
+- Validate input at system boundaries and handle errors explicitly.
+- Do not silently swallow errors; if an error is intentionally ignored, log it or leave a short comment.
+- For docs, keep the default README in Vietnamese and update the English version when content changes.

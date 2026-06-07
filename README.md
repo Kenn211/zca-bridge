@@ -7,147 +7,120 @@
 [![CI](https://github.com/diendh/zca-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/diendh/zca-bridge/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-Cầu nối sidecar tự host, giúp đồng bộ hội thoại [Zalo](https://zalo.me) hai chiều với
-[Chatwoot](https://www.chatwoot.com). Dự án này cho phép hiển thị và xử lý tin nhắn Zalo như một
-inbox trong Chatwoot — có thể nhận và gửi tin nhắn từ cùng một giao diện.
+`zca-bridge` là sidecar tự host để đồng bộ hội thoại [Zalo](https://zalo.me) hai chiều với
+[Chatwoot](https://www.chatwoot.com). Bridge biến Zalo thành một inbox trong Chatwoot để nhân viên
+có thể nhận, gửi, ghi chú và theo dõi lịch sử hội thoại ngay trong helpdesk.
 
-Dự án hỗ trợ hai hướng tích hợp:
+Mặc định tài liệu chính dùng tiếng Việt. Bản tiếng Anh nằm ở [README.en.md](README.en.md).
 
-* **Zalo Official Account (OA)**: sử dụng API chính thức của Zalo.
-* **Tài khoản Zalo cá nhân**: sử dụng [`zca-js`](https://github.com/RFS-ADRENO/zca-js), đăng nhập bằng QR. Đây là thư viện không chính thức và có rủi ro riêng.
+## Tóm tắt
 
-Tên package/kỹ thuật: `zca-bridge`.
+- **Kênh Zalo OA:** dùng API chính thức của Zalo, hỗ trợ OAuth, webhook, gửi/nhận tin, backfill và
+  một số luồng xin thông tin khách hàng.
+- **Kênh Zalo cá nhân:** dùng [`zca-js`](https://github.com/RFS-ADRENO/zca-js) và đăng nhập QR.
+  Đây là API không chính thức, có rủi ro khóa hoặc cấm tài khoản.
+- **Chatwoot:** bridge nhận webhook outbound từ Chatwoot và đẩy inbound message vào Chatwoot qua API.
+- **Hàng đợi bền:** lưu job trong PostgreSQL, retry lỗi tạm thời và đưa lỗi vĩnh viễn vào dead-letter.
+- **Media:** archive file đính kèm cục bộ; file lớn có thể gửi qua link `/media` có token.
 
-Node 24 · TypeScript (ESM) · Fastify · PostgreSQL.
+Node 24+ · TypeScript ESM · Fastify · PostgreSQL · Vitest · Docker
 
-> Đây là dự án độc lập, không thuộc sở hữu, không được tài trợ và không được xác nhận chính thức bởi Zalo, VNG, Chatwoot hoặc nhóm phát triển `zca-js`.
+> Dự án này độc lập, không thuộc sở hữu, không được tài trợ và không được xác nhận chính thức bởi
+> Zalo, VNG, Chatwoot hoặc nhóm phát triển `zca-js`.
 
-## Tại sao quan trọng
+## Cảnh báo quan trọng
 
-Đội ngũ chăm sóc khách hàng ở Việt Nam gắn liền với Zalo, nhưng Zalo không có tích hợp Chatwoot gốc,
-nên nhân viên phải dùng app Zalo tách rời khỏi helpdesk của họ. Cầu nối này đưa Zalo vào Chatwoot như
-một inbox bình thường, tự host nên dữ liệu hội thoại nằm trên hạ tầng do bạn kiểm soát.
+Tài khoản Zalo cá nhân được kết nối qua `zca-js`, một thư viện **không chính thức**. Dùng API không
+chính thức có thể khiến tài khoản Zalo bị hạn chế, khóa hoặc cấm vĩnh viễn. Nên dùng tài khoản phụ,
+không dùng tài khoản kinh doanh chính hoặc tài khoản có dữ liệu nhạy cảm.
 
-## Tình huống sử dụng
-
-- Đội hỗ trợ của SMB và agency muốn gom các kênh về Chatwoot.
-- Đội đã dùng Chatwoot, muốn thêm Zalo mà không qua dịch vụ SaaS trung gian.
-- Doanh nghiệp dùng Zalo OA, muốn cộng tác giữa nhân viên, ghi chú và lịch sử trong Chatwoot.
-- Tự host để đáp ứng data residency và quyền riêng tư.
-
-## ⚠️ Cảnh báo rủi ro
-
-Kênh **tài khoản Zalo cá nhân** hoạt động thông qua [`zca-js`](https://github.com/RFS-ADRENO/zca-js),
-một thư viện không chính thức. Việc sử dụng API không chính thức có thể khiến tài khoản Zalo bị hạn chế,
-khóa hoặc cấm vĩnh viễn.
-
-Hãy cân nhắc kỹ trước khi sử dụng. Nên dùng tài khoản phụ hoặc tài khoản thử nghiệm, không nên dùng
-tài khoản quan trọng, tài khoản kinh doanh chính hoặc tài khoản có dữ liệu nhạy cảm.
-
-Dự án này không đảm bảo an toàn tài khoản và không chịu trách nhiệm cho bất kỳ sự cố nào phát sinh
-khi sử dụng kênh tài khoản cá nhân.
-
-> Using unofficial APIs may get your account restricted, locked, or permanently banned. Use it at your own risk.
-
-Riêng kênh **Zalo Official Account (OA)** sử dụng API chính thức của Zalo nên không thuộc nhóm rủi ro
-từ `zca-js`. Xem [SECURITY.vi.md](SECURITY.vi.md).
+Kênh **Zalo Official Account (OA)** dùng API chính thức của Zalo nên không thuộc nhóm rủi ro từ
+`zca-js`. Xem thêm [SECURITY.vi.md](SECURITY.vi.md).
 
 ## Tính năng
 
-* Nhắn tin hai chiều Zalo ↔ Chatwoot.
-* Hỗ trợ text, ảnh, file, ghi âm, video, sticker, vị trí…
-* Hàng đợi bền: lưu trước rồi mới xử lý, có retry và dead-letter.
-* Chống lặp/echo hai chiều bằng `message_map`.
-* Lưu trữ media bền: mọi file đính kèm được backup cục bộ; file lớn có thể phục vụ qua link có token.
-* Hỗ trợ trả lời trích dẫn, reaction và thu hồi tin nhắn cho tài khoản cá nhân.
-* OA hỗ trợ trả lời trích dẫn dạng text.
+- Nhắn tin hai chiều Zalo ↔ Chatwoot.
+- Hỗ trợ text, ảnh, file, ghi âm, video, sticker, vị trí và fallback cho nội dung chưa nhận diện.
+- Chống lặp/echo bằng `message_map`.
+- Archive media bền và phục vụ file lớn qua link token hóa.
+- Hỗ trợ quote/reply, reaction và thu hồi tin nhắn cho tài khoản cá nhân.
+- Hỗ trợ Zalo OA OAuth, webhook, gửi ảnh/file, nén ảnh OA quá lớn trước khi upload, backfill khi khởi động.
+- Admin dashboard tại `/admin/` để tạo tài khoản admin, cấu hình Chatwoot/OA, thêm inbox, quét QR và xem log.
 
 ## Kiến trúc
 
-Cầu nối luân chuyển tin nhắn theo hai luồng bền, cả hai đều dựa trên hàng đợi job trong PostgreSQL.
+- **Inbound:** Zalo cá nhân (`zca-js`) hoặc Zalo OA webhook/backfill → phân loại message → PostgreSQL
+  job queue → worker → Chatwoot Application/Platform API.
+- **Outbound:** Chatwoot webhook → PostgreSQL job queue → worker → Zalo personal sender hoặc OA sender.
+- **Media:** attachment được tải về archive cục bộ; nếu vượt giới hạn upload Chatwoot thì bridge gửi link
+  `/media/:token`.
+- **Settings:** cấu hình nhạy cảm trong admin UI được mã hóa bằng `CREDENTIALS_KEY`.
 
-- **Inbound:** sự kiện Zalo cá nhân (qua adapter `zca-js`) và webhook OA → phân loại (classify) →
-  hàng đợi job bền (PostgreSQL) → worker → Chatwoot Application/Platform API.
-- **Outbound:** webhook Chatwoot → hàng đợi → worker → Zalo (personal sender / OA sender).
-- `message_map` chống lặp echo giữa hai hệ thống; media được archive cục bộ và phục vụ qua link có
-  token khi cần.
+### Module chính
 
-### Module map
-
-- `src/zalo` — personal adapter, classify, session, QR login.
-- `src/zalo-oa` — OA OAuth, webhook, sender, backfill.
-- `src/chatwoot` — client, webhook server.
-- `src/worker` + `src/store` — durable queue, repos, migrations.
-- `src/handlers` — inbound/outbound orchestration.
-- `src/admin` — admin API + dashboard.
-- `src/media` — archive + tokenized serving.
-
-## Tài liệu
-
-Hướng dẫn đầy đủ nằm trong [wiki của dự án](https://github.com/diendh/zca-bridge/wiki) (English +
-Tiếng Việt):
-
-- [Cài đặt](https://github.com/diendh/zca-bridge/wiki/Installation-vi)
-- [Cấu hình](https://github.com/diendh/zca-bridge/wiki/Configuration-vi) — bảng tham chiếu env đầy đủ
-- [Kiến trúc](https://github.com/diendh/zca-bridge/wiki/Architecture-vi)
-- [Thiết lập Chatwoot](https://github.com/diendh/zca-bridge/wiki/Chatwoot-Setup-vi)
-- [Tài khoản Zalo cá nhân](https://github.com/diendh/zca-bridge/wiki/Zalo-Personal-Account-vi) · [Thiết lập Zalo OA](https://github.com/diendh/zca-bridge/wiki/Zalo-OA-Setup-vi)
-- [Xử lý sự cố](https://github.com/diendh/zca-bridge/wiki/Troubleshooting-vi)
+- `src/zalo` — adapter Zalo cá nhân, phân loại message, session, đăng nhập QR.
+- `src/zalo-oa` — OA OAuth, webhook, sender, backfill, verify chữ ký, nén ảnh.
+- `src/chatwoot` — client, Application API, webhook server, tạo inbox.
+- `src/handlers` — orchestration inbound/outbound, note lỗi, đồng bộ contact info.
+- `src/worker` và `src/store` — queue bền, repository, migration.
+- `src/admin` — admin API, đăng nhập, settings, webhook info, log dashboard.
+- `src/media` — archive và link media token hóa.
 
 ## Yêu cầu
 
-* Bạn cần tự chuẩn bị một hệ thống Chatwoot đang hoạt động.
-* Dự án này **không kèm theo và không phân phối Chatwoot**.
-* Cần một PostgreSQL riêng cho bridge, tách khỏi database của Chatwoot.
-* Bridge tự chạy migration khi khởi động.
-* Node 24+ hoặc Docker.
+- Chatwoot đang chạy sẵn. Dự án này **không đóng gói hoặc phân phối Chatwoot**.
+- PostgreSQL riêng cho bridge, tách khỏi database của Chatwoot.
+- Node.js 24+ nếu chạy trực tiếp, hoặc Docker nếu chạy container.
+- `PUBLIC_BASE_URL` phải là URL bridge có thể truy cập từ bên ngoài khi dùng webhook/OA/iframe.
 
-## Cấu hình
+## Cấu hình nhanh
 
-Copy `.env.example` thành `.env` rồi điền giá trị cần thiết. Mỗi biến đều có chú thích trong
-`.env.example`.
-
-Tối thiểu cần cấu hình:
-
-* `DATABASE_URL`
-* `CHATWOOT_BASE_URL`
-* `CREDENTIALS_KEY`
-* `PUBLIC_BASE_URL`
-
-Ví dụ:
+Copy `.env.example` thành `.env` rồi điền giá trị thật:
 
 ```bash
 cp .env.example .env
 ```
 
-Sau đó sửa file `.env` theo môi trường của bạn.
+Các biến tối thiểu:
 
-## Chạy
+- `DATABASE_URL` — PostgreSQL riêng của bridge.
+- `CHATWOOT_BASE_URL` — URL Chatwoot mà bridge truy cập được.
+- `CREDENTIALS_KEY` — khóa hex 32 byte để mã hóa secret, tạo bằng `openssl rand -hex 32`.
+- `PUBLIC_BASE_URL` — URL public của bridge, ví dụ `https://bridge.example.com`.
 
-### Image dựng sẵn, không cần build (chỉ một file)
+Biến nên cấu hình thêm:
 
-Chạy bridge cùng Postgres của nó thẳng từ image đã publish — không cần tải mã nguồn. Chỉ cần
-`docker-compose.full.yml` và một file `.env`:
+- `CHATWOOT_API_ACCESS_TOKEN` và `CHATWOOT_ACCOUNT_ID` — cần cho tạo inbox tự động, import tin tự gửi
+  từ app Zalo và ghi private note khi outbound fail vĩnh viễn.
+- `WEBHOOK_SECRET` — thêm secret vào URL webhook Chatwoot.
+- `MEDIA_ARCHIVE_ROOT`, `MEDIA_TOKEN_TTL_DAYS`, `CHATWOOT_MAX_ATTACHMENT_MB` — kiểm soát lưu trữ media.
+- `ZALO_OA_APP_ID`, `ZALO_OA_APP_SECRET`, `ZALO_OA_SECRET_KEY`, `ZALO_OA_OAUTH_REDIRECT` — chỉ cần khi dùng OA.
+
+Không commit `.env`, token thật, app secret, session Zalo hoặc database dump.
+
+## Chạy bằng Docker
+
+### Dùng image dựng sẵn
+
+Tải `docker-compose.full.yml`, chuẩn bị `.env`, rồi chạy:
 
 ```bash
-cp .env.example .env   # điền CHATWOOT_BASE_URL (Chatwoot của bạn), CREDENTIALS_KEY, PUBLIC_BASE_URL...
+cp .env.example .env
 docker compose -f docker-compose.full.yml up -d
 ```
 
-Bridge: `http://localhost:4000`. Tự chuẩn bị Chatwoot (trỏ `CHATWOOT_BASE_URL` tới nó). Image được
-pull từ ghcr.io — package phải ở chế độ public, hoặc chạy `docker login ghcr.io` trước.
+Bridge chạy ở `http://localhost:4000`. File compose này chạy kèm PostgreSQL riêng cho bridge và pull
+image `ghcr.io/diendh/zca-bridge:latest`.
 
-### Docker Compose — build từ mã nguồn (tự host Chatwoot riêng)
-
-Khuyến nghị dùng Docker Compose:
+### Build từ source
 
 ```bash
 cp .env.example .env
 docker compose -f docker-compose.example.yml up -d --build
 ```
 
-File compose mẫu sẽ khởi động bridge và PostgreSQL riêng cho bridge. Biến `CHATWOOT_BASE_URL` cần trỏ
-tới Chatwoot có sẵn của bạn.
+File compose mẫu chỉ chạy bridge và PostgreSQL của bridge. Bạn vẫn cần Chatwoot riêng và trỏ
+`CHATWOOT_BASE_URL` tới Chatwoot đó.
 
 ### Container đơn
 
@@ -155,9 +128,10 @@ tới Chatwoot có sẵn của bạn.
 docker run --env-file .env -p 4000:4000 ghcr.io/diendh/zca-bridge:latest
 ```
 
-Lưu ý: bạn vẫn cần một PostgreSQL và Chatwoot truy cập được.
+Khi chạy container đơn, `DATABASE_URL` và `CHATWOOT_BASE_URL` phải trỏ tới dịch vụ truy cập được từ
+container.
 
-### Chạy trực tiếp
+## Chạy trực tiếp
 
 ```bash
 npm ci
@@ -165,48 +139,63 @@ npm run build
 npm start
 ```
 
-Bridge sẽ tự chạy migration khi khởi động và lắng nghe trên `$PORT`, mặc định là `4000`.
+Migration tự chạy khi khởi động. Bridge lắng nghe trên `$PORT`, mặc định là `4000`.
+
+Chạy dev mode:
+
+```bash
+npm run dev
+```
+
+## Thiết lập sau khi chạy
+
+1. Mở `PUBLIC_BASE_URL/admin/` hoặc `http://localhost:4000/admin/`.
+2. Tạo tài khoản admin lần đầu. Mật khẩu tối thiểu 8 ký tự.
+3. Vào phần Settings để kiểm tra `CHATWOOT_BASE_URL`, Chatwoot account id/token và cấu hình OA nếu dùng.
+4. Tạo tài khoản bridge:
+   - Với Zalo cá nhân: thêm account, tạo hoặc gắn Chatwoot inbox, bấm đăng nhập và quét QR.
+   - Với Zalo OA: thêm OA account, bấm kết nối OA và hoàn tất OAuth.
+5. Copy webhook URL trong admin dashboard:
+   - Chatwoot webhook: dùng cho inbox Chatwoot tương ứng.
+   - Zalo OA webhook: dùng trong Zalo developer console nếu bật OA.
+6. Gửi thử một tin inbound và một tin outbound để kiểm tra mapping và chống echo.
 
 ## Kiểm thử
 
 ```bash
-npx vitest run
+npm test
 ```
 
-Một vài test đang bị cách ly vì đã lệch khỏi `src`; xem [ROADMAP.vi.md](ROADMAP.vi.md).
+Bộ test dùng Vitest. Nếu test liên quan `sharp` báo không load được module, chạy lại `npm ci` để cài
+dependency native/optional đúng nền tảng rồi chạy test lại.
 
-## Lưu ý bảo mật
+Một số test repository cần `TEST_DATABASE_URL`; khi biến này không có, các test đó được skip có chủ ý.
+Xem [ROADMAP.vi.md](ROADMAP.vi.md) để biết nợ kỹ thuật hiện tại.
 
-Thông tin đăng nhập được mã hóa khi lưu (`CREDENTIALS_KEY`, AES-256-GCM). Bảo vệ các endpoint admin và
-webhook bằng `ADMIN_TOKEN` / `WEBHOOK_SECRET` / `ZALO_OA_SECRET_KEY`, và dùng một database riêng. Xem
-[SECURITY.vi.md](SECURITY.vi.md).
+## Bảo mật và kiểm tra lộ thông tin
 
-## Lộ trình bảo trì
+- Không đưa secret thật vào README, issue, PR, log hoặc screenshot.
+- `CREDENTIALS_KEY` phải là 64 ký tự hex và được giữ riêng theo môi trường.
+- Admin UI dùng tài khoản admin tạo lần đầu và cookie phiên ký bằng secret dẫn xuất từ `CREDENTIALS_KEY`.
+- Dùng HTTPS cho `PUBLIC_BASE_URL`, đặc biệt khi expose `/admin/`, `/webhooks/*` và `/media/*`.
+- Dùng `WEBHOOK_SECRET` cho Chatwoot webhook và `ZALO_OA_SECRET_KEY` để xác thực webhook OA.
+- Trước khi commit tài liệu, nên scan bằng `rg` hoặc secret scanner để đảm bảo chỉ có placeholder/tên biến.
 
-Xem [ROADMAP.vi.md](ROADMAP.vi.md).
+## Tài liệu liên quan
 
-## Cách Codex được sử dụng
+- [SECURITY.vi.md](SECURITY.vi.md) — chính sách bảo mật và vận hành an toàn.
+- [CONTRIBUTING.vi.md](CONTRIBUTING.vi.md) — hướng dẫn đóng góp.
+- [ROADMAP.vi.md](ROADMAP.vi.md) — lộ trình và nợ kỹ thuật hiện tại.
+- [CHANGELOG.md](CHANGELOG.md) — lịch sử phát hành.
 
-Tôi sẽ dùng Codex để bảo trì zca-bridge hiệu quả hơn: review pull request, sinh test, cải thiện chất
-lượng code TypeScript, refactor logic đồng bộ Zalo/Chatwoot, kiểm tra độ tin cậy của webhook và hàng
-đợi, cải thiện việc triển khai Docker, viết tài liệu, phân loại issue, và review các khu vực nhạy cảm
-về bảo mật như token, webhook, upload media, retry, và tích hợp API.
+## Bên thứ ba
 
-## Ghi chú về bên thứ ba
-
-Dự án này tích hợp hoặc phụ thuộc vào một số sản phẩm/dự án bên thứ ba:
-
-* [Chatwoot](https://www.chatwoot.com)
-* [Zalo](https://zalo.me)
-* [`zca-js`](https://github.com/RFS-ADRENO/zca-js)
-
-Tất cả tên thương hiệu, logo, nhãn hiệu và tên sản phẩm thuộc về chủ sở hữu tương ứng. Việc nhắc đến
-các bên thứ ba trong README chỉ nhằm mục đích mô tả khả năng tích hợp kỹ thuật.
+Dự án tích hợp với [Chatwoot](https://www.chatwoot.com), [Zalo](https://zalo.me) và
+[`zca-js`](https://github.com/RFS-ADRENO/zca-js). Tất cả tên thương hiệu, logo, nhãn hiệu và tên sản
+phẩm thuộc về chủ sở hữu tương ứng; việc nhắc đến chỉ để mô tả tích hợp kỹ thuật.
 
 ## Giấy phép
 
 Copyright 2026 Tom.
 
 Phát hành theo [Apache License 2.0](LICENSE).
-
-Dự án này chỉ là bridge độc lập. Chatwoot, Zalo và `zca-js` thuộc về chủ sở hữu tương ứng của họ.
