@@ -16,12 +16,12 @@ This roadmap reflects the maintainer's current intent and is not a release commi
 
 ## Near Term
 
-- Restore a green local/CI test state, especially the test group that fails when the native `sharp`
-  module cannot be loaded.
 - Standardize production guidance: reverse proxy, HTTPS, PostgreSQL/media archive backup, and secret
   rotation.
 - Revisit `.env.example` and compose comments so they fully match the current admin UI flow.
 - Expand coverage for outbound failure flows, OA media upload, and Chatwoot inbox provisioning.
+- Add a database-backed integration test profile for repository tests that currently require
+  `TEST_DATABASE_URL`.
 
 ## Medium Term
 
@@ -37,26 +37,20 @@ This roadmap reflects the maintainer's current intent and is not a release commi
   alerts.
 - Run periodic security reviews for tokens, webhooks, media links, and admin sessions.
 
-## Test Debt
+## Test Status
 
-Latest local `npm test` check on 2026-06-07:
+Latest local check after `npm ci` on Node 24.16.0 on 2026-06-08:
 
-- 62 test files passed.
+- 67 test files passed.
 - 5 test files were intentionally skipped because they require `TEST_DATABASE_URL`.
-- 5 suites failed because Vitest/Vite could not load the `sharp` module.
-- 353 tests passed, 20 tests skipped.
+- 399 tests passed, 20 tests skipped.
+- `npm run build` passed.
+- `npm audit` reported 0 vulnerabilities.
 
-Files currently failing due to the `sharp` load error:
+The previous local `sharp` load error was resolved by reinstalling dependencies with `npm ci`.
 
-- `test/handlers/outbound.test.ts`
-- `test/handlers/outboundConsult.test.ts`
-- `test/handlers/outboundLog.test.ts`
-- `test/zalo-oa/sender.test.ts`
-- `test/zalo-oa/imageCompress.test.ts`
-
-`sharp` is now a dependency in `package.json` and is used by `src/zalo-oa/imageCompress.ts`, so the
-fix should target native/optional dependency installation or test-runner configuration rather than
-removing these tests.
+Remaining test debt is focused on database-backed repository tests that need a configured
+`TEST_DATABASE_URL`.
 
 ## How Codex Is Used
 

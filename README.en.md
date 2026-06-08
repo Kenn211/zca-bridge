@@ -176,7 +176,17 @@ The test suite uses Vitest. If tests involving `sharp` fail to load the module, 
 native/optional dependencies are installed for the current platform, then rerun tests.
 
 Some repository tests require `TEST_DATABASE_URL`; without it, those tests are intentionally skipped.
-See [ROADMAP.md](ROADMAP.md) for the current test debt.
+See [ROADMAP.md](ROADMAP.md) for the current test status and maintainer roadmap.
+
+## How Codex Is Used
+
+Codex is used as a maintainer assistant for work that can be checked with code and tests:
+
+- reviewing security-sensitive webhook, media, queue, and admin flows;
+- expanding test coverage for the worker, OA sender, retry/dead-letter handling, and Chatwoot
+  provisioning;
+- updating production operations docs, release notes, and security checklists;
+- automating recurring maintenance work such as PR review, dependency checks, and release prep.
 
 ## Security And Leak Checks
 
@@ -193,7 +203,7 @@ See [ROADMAP.md](ROADMAP.md) for the current test debt.
 
 - [SECURITY.md](SECURITY.md) — security policy and safe operations.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guide.
-- [ROADMAP.md](ROADMAP.md) — roadmap and current test debt.
+- [ROADMAP.md](ROADMAP.md) — roadmap and current test status.
 - [CHANGELOG.md](CHANGELOG.md) — release history.
 
 ## Third Parties

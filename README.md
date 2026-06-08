@@ -170,7 +170,16 @@ Bộ test dùng Vitest. Nếu test liên quan `sharp` báo không load được 
 dependency native/optional đúng nền tảng rồi chạy test lại.
 
 Một số test repository cần `TEST_DATABASE_URL`; khi biến này không có, các test đó được skip có chủ ý.
-Xem [ROADMAP.vi.md](ROADMAP.vi.md) để biết nợ kỹ thuật hiện tại.
+Xem [ROADMAP.vi.md](ROADMAP.vi.md) để biết trạng thái kiểm thử và lộ trình hiện tại.
+
+## Cách Codex được sử dụng
+
+Codex được dùng như một trợ lý maintainer cho các việc có thể kiểm chứng bằng code và test:
+
+- rà soát luồng webhook, media, queue và admin có rủi ro bảo mật;
+- mở rộng test coverage cho worker, OA sender, retry/dead-letter và Chatwoot provisioning;
+- cập nhật tài liệu vận hành production, release notes và checklist bảo mật;
+- tự động hóa các việc bảo trì lặp lại như review PR, kiểm tra dependency và chuẩn bị release.
 
 ## Bảo mật và kiểm tra lộ thông tin
 
@@ -185,7 +194,7 @@ Xem [ROADMAP.vi.md](ROADMAP.vi.md) để biết nợ kỹ thuật hiện tại.
 
 - [SECURITY.vi.md](SECURITY.vi.md) — chính sách bảo mật và vận hành an toàn.
 - [CONTRIBUTING.vi.md](CONTRIBUTING.vi.md) — hướng dẫn đóng góp.
-- [ROADMAP.vi.md](ROADMAP.vi.md) — lộ trình và nợ kỹ thuật hiện tại.
+- [ROADMAP.vi.md](ROADMAP.vi.md) — lộ trình và trạng thái kiểm thử hiện tại.
 - [CHANGELOG.md](CHANGELOG.md) — lịch sử phát hành.
 
 ## Bên thứ ba
