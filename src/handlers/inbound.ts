@@ -72,6 +72,12 @@ function contentTypeFor(mediaType: MediaKind, filename: string, downloaded: stri
 // A real attachment that fails to download must NOT be silently dropped: that loses the
 // media while marking the job done. Throwing lets the durable queue retry (transient
 // CDN/network failures then succeed on a later attempt).
+/** True when a Chatwoot call failed because the target conversation no longer exists (HTTP 404). */
+function isConversationGone(err: unknown): boolean {
+  const m = err instanceof Error ? err.message : String(err);
+  return /failed[^0-9]*404/.test(m);
+}
+
 export async function downloadMedia(href: string): Promise<{ bytes: Buffer; contentType: string }> {
   // Zalo CDN video/file downloads can be slow; allow up to 60s for the body.
   const opts = { method: "GET" as const, headersTimeout: 10_000, bodyTimeout: 60_000 };
@@ -129,16 +135,31 @@ export class InboundHandler {
   private async process(accountId: number, identifier: string, sourceId: string, msg: IncomingMessage): Promise<void> {
     if (msg.isSelf) { await this.processSelf(accountId, identifier, sourceId, msg); return; }
 
-    const conversationId = await this.resolveConversation(accountId, identifier, sourceId, msg);
+    let conversationId = await this.resolveConversation(accountId, identifier, sourceId, msg);
     if (msg.kind === ZaloThreadKind.OaUser) this.consult?.onInbound(accountId, sourceId).catch((err) => this.log.warn({ event: "consult_failed", accountId, sourceId, err }, "consultation onInbound failed"));
     if (msg.kind === ZaloThreadKind.OaUser) this.infoRequest?.onInbound(accountId, sourceId).catch((err) => this.log.warn({ event: "info_request_failed", accountId, sourceId, err }, "info request onInbound failed"));
     const built = await this.buildOutput(accountId, msg);
     // Native reply: the public inbox API cannot set in_reply_to, so a resolvable quote is
     // routed through the Application API as an incoming message instead.
     const inReplyTo = await this.resolveQuote(accountId, msg);
-    const created = inReplyTo != null && this.appClient.enabled
-      ? await this.appClient.createIncomingMessage(conversationId, built.content, { inReplyTo, attachments: built.attachments })
-      : await this.chatwoot.createMessage(identifier, sourceId, conversationId, built);
+    const post = (cid: number) =>
+      inReplyTo != null && this.appClient.enabled
+        ? this.appClient.createIncomingMessage(cid, built.content, { inReplyTo, attachments: built.attachments })
+        : this.chatwoot.createMessage(identifier, sourceId, cid, built);
+    let created: { id: number };
+    try {
+      created = await post(conversationId);
+    } catch (err) {
+      // The Chatwoot conversation was deleted out from under us (stale mapping).
+      // Drop the mapping, create a fresh conversation, and retry once.
+      if (!isConversationGone(err)) throw err;
+      this.log.warn({ event: "conversation_recreated", accountId, sourceId, staleId: conversationId }, "chatwoot conversation gone; recreating");
+      await this.conversations.clear(accountId, sourceId);
+      const conv = await this.chatwoot.createConversation(identifier, sourceId);
+      await this.conversations.saveChatwootId(accountId, sourceId, conv.id);
+      conversationId = conv.id;
+      created = await post(conversationId);
+    }
     await this.mapping.recordIfNew({
       zaloAccountId: accountId, zaloMsgId: msg.msgId, zaloThreadId: msg.threadId,
       direction: "in", chatwootMessageId: created.id, quoteSrc: msg.quoteSrc,
