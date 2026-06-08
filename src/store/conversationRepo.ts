@@ -21,6 +21,14 @@ export class ConversationRepo {
     );
   }
 
+  /** Forget the Chatwoot conversation mapping (e.g. it was deleted in Chatwoot). */
+  async clear(accountId: number, sourceId: string): Promise<void> {
+    await this.pool.query(
+      "DELETE FROM zalo_conversations WHERE zalo_account_id = $1 AND source_id = $2",
+      [accountId, sourceId],
+    );
+  }
+
   async markInbound(accountId: number, sourceId: string): Promise<void> {
     await this.pool.query(
       "UPDATE zalo_conversations SET last_inbound_at = now(), cs_sent_count = 0 WHERE zalo_account_id = $1 AND source_id = $2",
