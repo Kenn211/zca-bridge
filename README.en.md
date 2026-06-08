@@ -51,6 +51,20 @@ The **Zalo Official Account (OA)** channel uses Zalo's official API and is not s
 - Admin dashboard at `/admin/` for first-run admin setup, Chatwoot/OA settings, account management,
   QR login, webhook URLs, and logs.
 
+## Screenshots
+
+The admin console is the main operations UI after the bridge is running. These screenshots were
+captured from a local preview build at `http://localhost:4100/admin/` with sample data and no real
+secrets.
+
+| First-run setup | Dashboard |
+| --- | --- |
+| <img src="assets/images/admin-preview/first-run-setup.png" alt="First-run admin account setup screen" width="420"> | <img src="assets/images/admin-preview/dashboard-desktop.png" alt="Zalo account management dashboard" width="420"> |
+
+| Settings | Logs | Mobile |
+| --- | --- | --- |
+| <img src="assets/images/admin-preview/settings-desktop.png" alt="Chatwoot, Zalo OA, and webhook URL settings screen" width="300"> | <img src="assets/images/admin-preview/logs-desktop.png" alt="Operations log screen" width="300"> | <img src="assets/images/admin-preview/dashboard-mobile.png" alt="Admin dashboard on a mobile viewport" width="180"> |
+
 ## Architecture
 
 - **Inbound:** personal Zalo (`zca-js`) or Zalo OA webhook/backfill → message classification →
