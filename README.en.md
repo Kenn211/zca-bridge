@@ -48,8 +48,12 @@ The **Zalo Official Account (OA)** channel uses Zalo's official API and is not s
 - Durable media archive and tokenized links for large files.
 - Quote/reply, reactions, and message recall for personal accounts.
 - Zalo OA OAuth, webhooks, image/file sending, OA image compression before upload, and startup backfill.
+- Automatic reconnection for personal accounts when a session drops, with exponential backoff
+  (5s → 5 min). If the session truly expires, the account switches to a state that needs a fresh QR scan.
+- Per-account egress proxy for personal accounts (HTTP, HTTPS, SOCKS5, optional user/password) to
+  isolate each account's outbound IP.
 - Admin dashboard at `/admin/` for first-run admin setup, Chatwoot/OA settings, account management,
-  QR login, webhook URLs, and logs.
+  proxy management, QR login, webhook URLs, and logs.
 
 ## Screenshots
 
@@ -76,11 +80,12 @@ secrets.
 
 ### Main Modules
 
-- `src/zalo` — personal Zalo adapter, message classification, session handling, QR login.
+- `src/zalo` — personal Zalo adapter, message classification, session handling, QR login,
+  auto-reconnect supervisor, and proxy routing.
 - `src/zalo-oa` — OA OAuth, webhook, sender, backfill, signature verification, image compression.
 - `src/chatwoot` — client, Application API, webhook server, inbox provisioning.
 - `src/handlers` — inbound/outbound orchestration, failure notes, contact-info sync.
-- `src/worker` and `src/store` — durable queue, repositories, migrations.
+- `src/worker` and `src/store` — durable queue, repositories (including proxies), migrations.
 - `src/admin` — admin API, login, settings, webhook info, log dashboard.
 - `src/media` — archive and tokenized media serving.
 
@@ -172,13 +177,34 @@ npm run dev
 1. Open `PUBLIC_BASE_URL/admin/` or `http://localhost:4000/admin/`.
 2. Create the first admin user. Passwords must be at least 8 characters.
 3. In Settings, verify `CHATWOOT_BASE_URL`, Chatwoot account id/token, and OA settings if used.
-4. Create a bridge account:
-   - Personal Zalo: add an account, create or attach a Chatwoot inbox, start login, and scan the QR.
+4. (Optional) Open the **Proxy** tab to register proxies if you want to route personal accounts
+   through dedicated IPs (see [Proxy and Auto-Reconnect](#proxy-and-auto-reconnect)).
+5. Create a bridge account:
+   - Personal Zalo: add an account, create or attach a Chatwoot inbox, pick a proxy (if any), start
+     login, and scan the QR.
    - Zalo OA: add an OA account, connect OA, and complete OAuth.
-5. Copy webhook URLs from the admin dashboard:
+6. Copy webhook URLs from the admin dashboard:
    - Chatwoot webhook: configure it on the matching Chatwoot inbox.
    - Zalo OA webhook: configure it in the Zalo developer console when OA is enabled.
-6. Send one inbound and one outbound test message to confirm mapping and echo suppression.
+7. Send one inbound and one outbound test message to confirm mapping and echo suppression.
+
+## Proxy and Auto-Reconnect
+
+Both features apply only to **personal Zalo accounts** (`zca-js`); the OA channel is unaffected.
+
+**Per-account proxy.** In the admin **Proxy** tab you register a list of proxies (`http`, `https`, or
+`socks5`, with host, port, and optional user/password). Proxy passwords are encrypted at rest. Each
+personal account can be bound to one proxy so all of that account's traffic (websocket and HTTP) goes
+through a dedicated IP — useful for isolating IPs per account. Changing the proxy on a running account
+shows a **"Needs proxy applied"** badge; click **"Apply proxy"** to have the bridge reconnect through
+the new proxy. Deleting a proxy still in use requires confirmation and automatically detaches it from
+the affected accounts.
+
+**Auto-reconnect.** When a personal account's `zca-js` session drops, a supervisor recreates the
+session with exponential backoff (5s, 15s, 45s, 2 min, capped at 5 min). During this time the account
+shows a **"Reconnecting…"** status. Network and proxy errors are treated as transient and retried.
+Only when an error clearly indicates an expired session/login does the account switch to a state that
+requires a manual **QR rescan**.
 
 ## Tests
 
