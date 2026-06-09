@@ -17,11 +17,13 @@ export interface StoredLog {
   accountId: number | null;
   msg: string;
   context: Record<string, unknown>;
+  dismissedAt: string | null;
 }
 
 export interface LogQuery {
   minLevel?: number;
   accountId?: number;
+  excludeDismissed?: boolean;
   limit: number;
 }
 
@@ -50,10 +52,11 @@ export class LogsRepo {
     const params: unknown[] = [];
     if (typeof q.minLevel === "number") { params.push(q.minLevel); where.push(`level >= $${params.length}`); }
     if (typeof q.accountId === "number") { params.push(q.accountId); where.push(`account_id = $${params.length}`); }
+    if (q.excludeDismissed) where.push("dismissed_at IS NULL");
     const limit = Math.min(Math.max(1, Math.floor(q.limit) || 0), MAX_LIMIT);
     params.push(limit);
     const sql =
-      "SELECT id, ts, level, event, account_id, msg, context FROM event_logs" +
+      "SELECT id, ts, level, event, account_id, msg, context, dismissed_at FROM event_logs" +
       (where.length ? ` WHERE ${where.join(" AND ")}` : "") +
       ` ORDER BY id DESC LIMIT $${params.length}`;
     const r = await this.pool.query(sql, params);
@@ -65,7 +68,17 @@ export class LogsRepo {
       accountId: row.account_id ?? null,
       msg: row.msg,
       context: row.context ?? {},
+      dismissedAt: row.dismissed_at == null ? null : (row.dismissed_at instanceof Date ? row.dismissed_at.toISOString() : String(row.dismissed_at)),
     }));
+  }
+
+  /** Mark a log row dismissed. Idempotent — keeps the original dismiss time. Returns false if the id is unknown. */
+  async dismiss(id: number): Promise<boolean> {
+    const r = await this.pool.query(
+      "UPDATE event_logs SET dismissed_at = COALESCE(dismissed_at, now()) WHERE id = $1",
+      [id],
+    );
+    return (r.rowCount ?? 0) > 0;
   }
 
   /** Keep at most `keep` most-recent rows. */

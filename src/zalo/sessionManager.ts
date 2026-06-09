@@ -6,7 +6,7 @@ export class SessionManager {
   private onReaction?: (accountId: number, evt: ReactionEvent) => void;
   private onUndo?: (accountId: number, evt: UndoEvent) => void;
 
-  constructor(private onExpired: (accountId: number, reason: string) => void = () => {}) {}
+  constructor() {}
 
   /** Register app-level reaction/undo handlers, bound for every session on bindInbound. */
   registerEventHandlers(
@@ -19,10 +19,6 @@ export class SessionManager {
 
   register(accountId: number, api: ZaloApi): void {
     this.sessions.set(accountId, api);
-    api.onClosed((reason) => {
-      this.sessions.delete(accountId);
-      this.onExpired(accountId, reason);
-    });
   }
 
   bindInbound(accountId: number, handler: (accountId: number, msg: IncomingMessage) => void): void {

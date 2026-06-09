@@ -8,6 +8,7 @@ const msg = (id, text, ok) => {
 };
 const state = {
   accounts: [],
+  proxies: [],
   recentLogIssues: [],
   settingsLoaded: false,
   webhooksLoaded: false,
@@ -27,7 +28,7 @@ function setBusy(buttonSelector, busy) {
 
 function setTab(name) {
   state.activeTab = name;
-  for (const tab of ["accounts", "logs", "settings"]) {
+  for (const tab of ["accounts", "logs", "settings", "proxies"]) {
     const panel = $("tab_" + tab);
     const button = $("tab_" + tab + "_btn");
     if (panel) panel.classList.toggle("active", tab === name);
@@ -38,6 +39,7 @@ function setTab(name) {
     loadSettings();
     loadWebhooks();
   }
+  if (name === "proxies") loadProxies();
 }
 
 window.setTab = setTab;
@@ -84,6 +86,7 @@ function showDash() {
   show("dash", true);
   show("logoutBtn", true);
   show("sessionState", true);
+  loadProxies();
   setTab("accounts");
   loadAccounts();
   loadLogs({ quiet: true });
@@ -163,6 +166,14 @@ function isQrImageDataUrl(value) {
   return typeof value === "string" && /^data:image\/(?:png|jpeg|jpg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
 }
 
+function proxySelectOptions() {
+  const none = '<option value="">Không dùng proxy</option>';
+  const opts = state.proxies.map((p) =>
+    `<option value="${Number(p.id)}">${escapeHtml(p.label)} (${escapeHtml(p.protocol)})</option>`
+  ).join("");
+  return none + opts;
+}
+
 function openAddAccountPanel() {
   openDrawer("Thêm tài khoản", `
     <label for="newType">Loại tài khoản</label>
@@ -172,6 +183,8 @@ function openAddAccountPanel() {
     </select>
     <label for="newLabel">Nhãn</label>
     <input id="newLabel" placeholder="Ví dụ: Sales OA" />
+    <label for="newProxy">Proxy</label>
+    <select id="newProxy">${proxySelectOptions()}</select>
     <label class="check-row">
       <input id="useExistingInbox" type="checkbox" onchange="toggleExistingInbox()" />
       <span>Nâng cao: dùng inbox có sẵn</span>
@@ -223,6 +236,7 @@ async function loadAccounts() {
 const STATUS_BADGE = {
   connected: { label: "● Đã kết nối", cls: "ok" },
   pending_qr: { label: "Chờ đăng nhập", cls: "warn" },
+  reconnecting: { label: "Đang kết nối lại…", cls: "warn" },
   expired: { label: "Hết hạn", cls: "off" },
   logged_out: { label: "Đã đăng xuất", cls: "off" },
 };
@@ -245,15 +259,38 @@ function renderAccountSummary(accounts) {
     summaryCard("Cảnh báo/lỗi", recentIssues),
   ].join("");
   const inboxNotice = missingInboxIds > 0
-    ? [`<div class="notice">${missingInboxIds} tài khoản có inbox identifier nhưng thiếu Inbox ID. Outbound routing cần Inbox ID.</div>`]
+    ? [`<div class="notice"><span class="notice-text">${missingInboxIds} tài khoản có inbox identifier nhưng thiếu Inbox ID. Outbound routing cần Inbox ID.</span></div>`]
     : [];
-  const logNotices = issueLogs.slice(0, 3).map((l) => `<div class="notice">${escapeHtml(logLevelMeta(l.level).t)} · ${escapeHtml(l.event || "event")} · ${escapeHtml(l.msg || "")}</div>`);
+  const logNotices = issueLogs.slice(0, 3).map((l) => {
+    const text = `${escapeHtml(logLevelMeta(l.level).t)} · ${escapeHtml(l.event || "event")} · ${escapeHtml(l.msg || "")}`;
+    const id = Number(l.id);
+    const close = Number.isFinite(id)
+      ? `<button class="notice-close" type="button" title="Đã xử lý — ẩn cảnh báo này" onclick="dismissIssue(${id})">×</button>`
+      : "";
+    return `<div class="notice"><span class="notice-text">${text}</span>${close}</div>`;
+  });
   $("recentIssues").innerHTML = inboxNotice.concat(logNotices).join("");
 }
 
 function summaryCard(label, value) {
   return `<div class="summary-card"><span class="muted">${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
+
+// Mark a dashboard warning/error notice handled; persisted server-side so it never returns.
+window.dismissIssue = async (id) => {
+  const n = Number(id);
+  if (!Number.isFinite(n)) return;
+  try {
+    const { status } = await api(`/admin/api/logs/${n}/dismiss`, { method: "POST" });
+    if (status === 200) {
+      await loadLogs({ quiet: true }); // re-fetch undismissed issues + re-render summary
+    } else {
+      msg("accountMsg", "Không ẩn được cảnh báo. Thử lại.", false);
+    }
+  } catch {
+    msg("accountMsg", "Không ẩn được cảnh báo. Thử lại.", false);
+  }
+};
 
 function renderAccounts(accounts) {
   const box = $("accounts");
@@ -276,9 +313,12 @@ function accountRow(a) {
     `<div class="${missingId ? "text-danger" : "muted"}">ID: ${escapeHtml(a.chatwootInboxId ?? "—")}</div>`,
   ].join("");
   const oa = a.zaloOaId ? escapeHtml(a.zaloOaId) : "—";
+  const proxyBadge = (a.type !== "oa" && a.proxyPending)
+    ? ' <span class="badge warn">Cần áp dụng proxy</span>'
+    : "";
   return `<tr>
     <td><strong>#${escapeHtml(a.id)} ${escapeHtml(a.label)}</strong><div class="muted">${type}</div></td>
-    <td>${statusBadge(a.status)}</td>
+    <td>${statusBadge(a.status)}${proxyBadge}</td>
     <td>${inbox}</td>
     <td>${oa}</td>
     <td><div class="row-actions">${accountActions(a)}</div></td>
@@ -290,12 +330,15 @@ function accountActions(a) {
   if (!id) return '<button class="button button-secondary" type="button" disabled>ID không hợp lệ</button>';
   const edit = `<button class="button button-secondary" type="button" onclick="openEditAccountPanel(${id})">Sửa</button>`;
   const del = `<button class="button button-danger" type="button" onclick="openDeletePanel(${id})">Xóa</button>`;
+  const applyProxyBtn = (a.type !== "oa" && a.proxyPending)
+    ? `<button class="button button-secondary" type="button" onclick="applyProxy(${id})">Áp dụng proxy</button>`
+    : "";
   if (a.type === "oa") {
     return `<a href="/admin/oa/connect?accountId=${id}"><button class="button button-primary" type="button">Kết nối OA</button></a>` +
       `<button class="button button-secondary" type="button" onclick="openInfoCardPanel(${id})">Xin thông tin</button>` +
       edit + del;
   }
-  return `<button class="button button-primary" type="button" onclick="openQrPanel(${id})">Quét QR</button>` + edit + del;
+  return `<button class="button button-primary" type="button" onclick="openQrPanel(${id})">Quét QR</button>` + applyProxyBtn + edit + del;
 }
 
 function renderAccountOptions(accounts) {
@@ -316,6 +359,15 @@ function findAccount(id) {
   return state.accounts.find((a) => Number(a.id) === Number(id));
 }
 
+function editProxySelectOptions(currentProxyId) {
+  const none = '<option value="">Không dùng proxy</option>';
+  const opts = state.proxies.map((p) => {
+    const selected = Number(p.id) === Number(currentProxyId) ? ' selected' : '';
+    return `<option value="${Number(p.id)}"${selected}>${escapeHtml(p.label)} (${escapeHtml(p.protocol)})</option>`;
+  }).join("");
+  return none + opts;
+}
+
 function openEditAccountPanel(id) {
   const a = findAccount(id);
   if (!a) { msg("accountMsg", "Không tìm thấy tài khoản.", false); return; }
@@ -326,6 +378,8 @@ function openEditAccountPanel(id) {
     <input id="e_ident" value="${escapeHtml(a.chatwootInboxIdentifier || "")}" />
     <label for="e_iid">Inbox ID</label>
     <input id="e_iid" value="${a.chatwootInboxId == null ? "" : escapeHtml(String(a.chatwootInboxId))}" />
+    <label for="editProxy">Proxy</label>
+    <select id="editProxy">${editProxySelectOptions(a.proxyId)}</select>
     <p class="muted">Đổi inbox chỉ ảnh hưởng tin mới. Nếu có identifier thì Inbox ID là bắt buộc.</p>
     <div id="e_msg" class="message"></div>
   `, `<button class="button button-secondary" type="button" onclick="closeDrawer()">Hủy</button>
@@ -386,7 +440,9 @@ window.saveAccount = async (id) => {
   const label = $("e_label").value.trim();
   const ident = $("e_ident").value.trim();
   const iid = $("e_iid").value.trim();
+  const proxyVal = $("editProxy") ? $("editProxy").value : "";
   if (label) payload.label = label;
+  payload.proxyId = proxyVal ? Number(proxyVal) : null;
   if (ident) payload.chatwootInboxIdentifier = ident;
   if (ident && iid === "") {
     const m = $("e_msg");
@@ -472,8 +528,10 @@ async function createAccount() {
   const useExisting = $("useExistingInbox").checked;
   const chatwootInboxIdentifier = $("newInboxIdent").value.trim();
   const iid = $("newInboxId").value.trim();
+  const proxyVal = $("newProxy") ? $("newProxy").value : "";
   if (!label) { msg("addMsg", "Cần nhãn.", false); return; }
   const payload = { label, inboxMode: useExisting ? "existing" : "auto" };
+  if (proxyVal) payload.proxyId = Number(proxyVal);
   if (useExisting) {
     if (!chatwootInboxIdentifier) { msg("addMsg", "Cần inbox identifier khi dùng inbox có sẵn.", false); return; }
     if (!iid) { msg("addMsg", "Cần Inbox ID khi dùng inbox có sẵn.", false); return; }
@@ -532,6 +590,7 @@ async function loadLogs(opts = {}) {
   const level = opts.quiet ? "" : ($("logLevel") ? $("logLevel").value : "");
   const accountId = opts.quiet ? "" : ($("logAccount") ? $("logAccount").value : "");
   const qs = new URLSearchParams({ limit: opts.quiet ? "20" : "300" });
+  if (opts.quiet) qs.set("excludeDismissed", "1");
   if (level && !opts.quiet) qs.set("level", level);
   if (accountId && !opts.quiet) qs.set("accountId", accountId);
   const { status, body } = await api("/admin/api/logs?" + qs.toString());
@@ -631,5 +690,231 @@ window.confirmDelete = async (id) => {
   m.textContent = status === 404 ? "Không tìm thấy tài khoản." : "Xóa thất bại.";
   m.className = "message err";
 };
+
+// ── Proxy CRUD ──────────────────────────────────────────────────────────────
+
+async function loadProxies() {
+  const box = $("proxies");
+  if (box) box.innerHTML = '<div class="empty-state">Đang tải proxy...</div>';
+  const { status, body } = await api("/admin/api/proxies");
+  if (status !== 200 || !body || !Array.isArray(body.proxies)) {
+    if (box) box.innerHTML = '<div class="empty-state error">Không tải được danh sách proxy.</div>';
+    return;
+  }
+  state.proxies = body.proxies;
+  renderProxies(body.proxies);
+}
+
+function renderProxies(proxies) {
+  const box = $("proxies");
+  if (!box) return;
+  if (proxies.length === 0) {
+    box.innerHTML = '<div class="empty-state">Chưa có proxy nào. Bấm "Thêm proxy" để bắt đầu.</div>';
+    return;
+  }
+  const rows = proxies.map((p) => proxyRow(p)).join("");
+  box.innerHTML = `<table class="account-table">
+    <thead><tr><th>Nhãn</th><th>Loại</th><th>Host:Port</th><th>Auth</th><th>Số TK dùng</th><th>Thao tác</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+function proxyRow(p) {
+  const pid = Number(p.id);
+  const usageCount = state.accounts.filter((a) => Number(a.proxyId) === pid).length;
+  const auth = p.username ? escapeHtml(p.username) : "—";
+  return `<tr>
+    <td><strong>${escapeHtml(p.label)}</strong></td>
+    <td>${escapeHtml(p.protocol)}</td>
+    <td>${escapeHtml(p.host)}:${escapeHtml(String(p.port))}</td>
+    <td>${auth}</td>
+    <td>${escapeHtml(String(usageCount))}</td>
+    <td><div class="row-actions">
+      <button class="button button-secondary" type="button" onclick="openEditProxyPanel(${pid})">Sửa</button>
+      <button class="button button-danger" type="button" onclick="deleteProxy(${pid})">Xóa</button>
+    </div></td>
+  </tr>`;
+}
+
+function openAddProxyPanel() {
+  openDrawer("Thêm proxy", `
+    <label for="px_label">Nhãn</label>
+    <input id="px_label" placeholder="Ví dụ: VPS HCM" />
+    <label for="px_protocol">Loại</label>
+    <select id="px_protocol">
+      <option value="http">http</option>
+      <option value="https">https</option>
+      <option value="socks5">socks5</option>
+    </select>
+    <label for="px_host">Host</label>
+    <input id="px_host" placeholder="proxy.example.com" />
+    <label for="px_port">Port</label>
+    <input id="px_port" type="number" min="1" max="65535" placeholder="1080" />
+    <label for="px_username">Username (tùy chọn)</label>
+    <input id="px_username" autocomplete="off" />
+    <label for="px_password">Password (tùy chọn)</label>
+    <input id="px_password" type="password" autocomplete="new-password" />
+    <div id="px_msg" class="message"></div>
+  `, `<button class="button button-secondary" type="button" onclick="closeDrawer()">Hủy</button>
+      <button id="saveNewProxyBtn" class="button button-primary" type="button" onclick="createProxy()">Thêm</button>`);
+}
+
+function openEditProxyPanel(id) {
+  const p = state.proxies.find((x) => Number(x.id) === Number(id));
+  if (!p) { return; }
+  openDrawer(`Sửa proxy #${Number(p.id)}`, `
+    <label for="epx_label">Nhãn</label>
+    <input id="epx_label" value="${escapeHtml(p.label)}" />
+    <label for="epx_protocol">Loại</label>
+    <select id="epx_protocol">
+      <option value="http"${p.protocol === "http" ? " selected" : ""}>http</option>
+      <option value="https"${p.protocol === "https" ? " selected" : ""}>https</option>
+      <option value="socks5"${p.protocol === "socks5" ? " selected" : ""}>socks5</option>
+    </select>
+    <label for="epx_host">Host</label>
+    <input id="epx_host" value="${escapeHtml(p.host)}" />
+    <label for="epx_port">Port</label>
+    <input id="epx_port" type="number" min="1" max="65535" value="${escapeHtml(String(p.port))}" />
+    <label for="epx_username">Username (tùy chọn)</label>
+    <input id="epx_username" autocomplete="off" value="${escapeHtml(p.username || "")}" />
+    <label for="epx_password">Password</label>
+    <input id="epx_password" type="password" autocomplete="new-password" placeholder="${p.hasPassword ? "(để trống nếu giữ nguyên)" : "(chưa đặt)"}" />
+    <div id="epx_msg" class="message"></div>
+  `, `<button class="button button-secondary" type="button" onclick="closeDrawer()">Hủy</button>
+      <button id="saveProxyBtn" class="button button-primary" type="button" onclick="saveProxy(${Number(p.id)})">Lưu</button>`);
+}
+
+async function createProxy() {
+  const token = drawerToken;
+  const label = $("px_label").value.trim();
+  const protocol = $("px_protocol").value;
+  const host = $("px_host").value.trim();
+  const port = $("px_port").value.trim();
+  const username = $("px_username").value.trim();
+  const password = $("px_password").value;
+  if (!label) { msg("px_msg", "Cần nhãn.", false); return; }
+  if (!host) { msg("px_msg", "Cần host.", false); return; }
+  if (!port || isNaN(Number(port)) || Number(port) < 1 || Number(port) > 65535) {
+    msg("px_msg", "Port phải là số từ 1–65535.", false); return;
+  }
+  const payload = {
+    label,
+    protocol,
+    host,
+    port: Number(port),
+    username: username || null,
+    password: password || null,
+  };
+  setBusy("#saveNewProxyBtn", true);
+  let result;
+  try {
+    result = await api("/admin/api/proxies", { method: "POST", body: JSON.stringify(payload) });
+  } catch {
+    if (isActiveDrawer(token) && $("px_msg")) {
+      setBusy("#saveNewProxyBtn", false);
+      msg("px_msg", "Thêm thất bại.", false);
+    }
+    return;
+  }
+  const { status, body } = result;
+  if (status === 200 || status === 201) {
+    if (isActiveDrawer(token)) closeDrawer();
+    loadProxies();
+  } else {
+    if (!isActiveDrawer(token) || !$("px_msg")) return;
+    setBusy("#saveNewProxyBtn", false);
+    msg("px_msg", (body && body.error) || "Thêm proxy thất bại.", false);
+  }
+}
+
+async function saveProxy(id) {
+  const token = drawerToken;
+  const pid = Number(id);
+  const label = $("epx_label").value.trim();
+  const protocol = $("epx_protocol").value;
+  const host = $("epx_host").value.trim();
+  const port = $("epx_port").value.trim();
+  const username = $("epx_username").value.trim();
+  const password = $("epx_password").value;
+  if (!label) { msg("epx_msg", "Cần nhãn.", false); return; }
+  if (!host) { msg("epx_msg", "Cần host.", false); return; }
+  if (!port || isNaN(Number(port)) || Number(port) < 1 || Number(port) > 65535) {
+    msg("epx_msg", "Port phải là số từ 1–65535.", false); return;
+  }
+  const payload = {
+    label,
+    protocol,
+    host,
+    port: Number(port),
+    username: username || null,
+  };
+  // Chỉ gửi password khi user nhập — empty giữ nguyên mật khẩu cũ
+  if (password) payload.password = password;
+  setBusy("#saveProxyBtn", true);
+  let result;
+  try {
+    result = await api(`/admin/api/proxies/${pid}`, { method: "PATCH", body: JSON.stringify(payload) });
+  } catch {
+    if (isActiveDrawer(token) && $("epx_msg")) {
+      setBusy("#saveProxyBtn", false);
+      msg("epx_msg", "Lưu thất bại.", false);
+    }
+    return;
+  }
+  const { status, body } = result;
+  if (status === 200) {
+    if (isActiveDrawer(token)) closeDrawer();
+    loadProxies();
+  } else {
+    if (!isActiveDrawer(token) || !$("epx_msg")) return;
+    setBusy("#saveProxyBtn", false);
+    msg("epx_msg", (body && body.error) || "Lưu proxy thất bại.", false);
+  }
+}
+
+async function deleteProxy(id) {
+  const pid = Number(id);
+  const { status, body } = await api(`/admin/api/proxies/${pid}`, { method: "DELETE" });
+  if (status === 409 && body && body.error === "proxy_in_use") {
+    const names = Array.isArray(body.accounts) ? body.accounts.map((a) => a.label).join(", ") : "";
+    const confirmed = confirm(`Proxy đang được dùng bởi: ${names}. Gỡ khỏi các tài khoản này và xóa proxy?`);
+    if (!confirmed) return;
+    const { status: s2, body: b2 } = await api(`/admin/api/proxies/${pid}?confirm=1`, { method: "DELETE" });
+    if (s2 === 200) {
+      loadProxies();
+      loadAccounts();
+    } else {
+      alert((b2 && b2.error) || "Xóa proxy thất bại.");
+      loadProxies();
+    }
+    return;
+  }
+  if (status === 200) {
+    loadProxies();
+    loadAccounts();
+  } else {
+    alert((body && body.error) || "Xóa proxy thất bại.");
+    loadProxies();
+  }
+}
+
+async function applyProxy(id) {
+  if (!confirm("Áp dụng proxy mới sẽ kết nối lại tài khoản qua IP mới — Zalo có thể yêu cầu quét QR lại. Tiếp tục?")) return;
+  const { status, body } = await api(`/admin/api/accounts/${Number(id)}/apply-proxy`, { method: "POST" });
+  if (status === 200) {
+    await loadAccounts();
+  } else {
+    msg("accountMsg", (body && body.error) || "Áp dụng proxy thất bại.", false);
+    await loadAccounts();
+  }
+}
+
+window.loadProxies = loadProxies;
+window.openAddProxyPanel = openAddProxyPanel;
+window.openEditProxyPanel = openEditProxyPanel;
+window.createProxy = createProxy;
+window.saveProxy = saveProxy;
+window.deleteProxy = deleteProxy;
+window.applyProxy = applyProxy;
 
 boot();

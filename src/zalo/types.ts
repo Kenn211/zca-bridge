@@ -83,7 +83,8 @@ export interface ZaloApi {
   onMessage(cb: (msg: IncomingMessage) => void): void;
   onReaction(cb: (evt: ReactionEvent) => void): void;
   onUndo(cb: (evt: UndoEvent) => void): void;
-  onClosed(cb: (reason: string) => void): void;
+  onClosed(cb: (code: number, reason: string) => void): void;
+  getSerializedCookie(): unknown;
   stop(): Promise<void>;
 }
 

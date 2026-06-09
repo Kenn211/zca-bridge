@@ -65,7 +65,7 @@ describe("LogsRepo (stubbed pool)", () => {
       })),
     };
     const out = await new LogsRepo(pool as any).query({ limit: 10 });
-    expect(out).toEqual([{ id: 7, ts: "2026-06-03T01:02:03.000Z", level: 50, event: "x", accountId: 3, msg: "m", context: { k: "v" } }]);
+    expect(out).toEqual([{ id: 7, ts: "2026-06-03T01:02:03.000Z", level: 50, event: "x", accountId: 3, msg: "m", context: { k: "v" }, dismissedAt: null }]);
   });
 
   it("prune deletes rows below max(id) - keep", async () => {
@@ -74,6 +74,56 @@ describe("LogsRepo (stubbed pool)", () => {
     expect(pool.calls[0].sql).toContain("DELETE FROM event_logs");
     expect(pool.calls[0].sql).toContain("MAX(id)");
     expect(pool.calls[0].params).toEqual([10000]);
+  });
+
+  it("query selects dismissed_at and maps it to dismissedAt", async () => {
+    const pool = {
+      query: vi.fn(async () => ({
+        rows: [{ id: "9", ts: new Date("2026-06-09T00:00:00.000Z"), level: 40, event: "e", account_id: null, msg: "m", context: {}, dismissed_at: new Date("2026-06-09T01:00:00.000Z") }],
+        rowCount: 1,
+      })),
+    };
+    const out = await new LogsRepo(pool as any).query({ limit: 10 });
+    expect(pool.query.mock.calls[0][0]).toContain("dismissed_at");
+    expect(out[0].dismissedAt).toBe("2026-06-09T01:00:00.000Z");
+  });
+
+  it("query maps a null dismissed_at to null", async () => {
+    const pool = {
+      query: vi.fn(async () => ({
+        rows: [{ id: "9", ts: new Date("2026-06-09T00:00:00.000Z"), level: 40, event: null, account_id: null, msg: "m", context: {}, dismissed_at: null }],
+        rowCount: 1,
+      })),
+    };
+    const out = await new LogsRepo(pool as any).query({ limit: 10 });
+    expect(out[0].dismissedAt).toBeNull();
+  });
+
+  it("query with excludeDismissed adds a dismissed_at IS NULL filter", async () => {
+    const pool = stubPool();
+    await new LogsRepo(pool as any).query({ excludeDismissed: true, limit: 20 });
+    const call = pool.calls[0];
+    expect(call.sql).toContain("dismissed_at IS NULL");
+    expect(call.params).toEqual([20]);
+  });
+
+  it("dismiss issues an idempotent UPDATE and returns whether a row matched", async () => {
+    const pool = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 1 })),
+    };
+    const ok = await new LogsRepo(pool as any).dismiss(7);
+    const [sql, params] = pool.query.mock.calls[0];
+    expect(sql).toContain("UPDATE event_logs");
+    expect(sql).toContain("dismissed_at = COALESCE(dismissed_at, now())");
+    expect(sql).toContain("WHERE id = $1");
+    expect(params).toEqual([7]);
+    expect(ok).toBe(true);
+  });
+
+  it("dismiss returns false when no row matches", async () => {
+    const pool = { query: vi.fn(async () => ({ rows: [], rowCount: 0 })) };
+    const ok = await new LogsRepo(pool as any).dismiss(999);
+    expect(ok).toBe(false);
   });
 });
 
@@ -102,5 +152,34 @@ d("LogsRepo (real DB)", () => {
     await repo.prune(0); // keep only the latest id
     const remaining = await repo.query({ limit: 10 });
     expect(remaining.length).toBe(1);
+  });
+
+  it("dismiss sets dismissed_at, is idempotent, and excludeDismissed hides the row", async () => {
+    await pool.query("TRUNCATE event_logs RESTART IDENTITY");
+    const repo = new LogsRepo(pool);
+    const ts = new Date();
+    await repo.insertMany([
+      { ts, level: 50, event: null, accountId: 1, msg: "boom", context: {} },
+      { ts, level: 50, event: null, accountId: 2, msg: "kept", context: {} },
+    ]);
+    const all = await repo.query({ limit: 10 });
+    const target = all.find((r) => r.msg === "boom")!;
+    expect(target.dismissedAt).toBeNull();
+
+    expect(await repo.dismiss(target.id)).toBe(true);
+    const afterFirst = (await repo.query({ limit: 10 })).find((r) => r.id === target.id)!;
+    expect(afterFirst.dismissedAt).not.toBeNull();
+
+    // idempotent: dismissing again keeps the original timestamp
+    expect(await repo.dismiss(target.id)).toBe(true);
+    const afterSecond = (await repo.query({ limit: 10 })).find((r) => r.id === target.id)!;
+    expect(afterSecond.dismissedAt).toBe(afterFirst.dismissedAt);
+
+    // unknown id → false
+    expect(await repo.dismiss(999999)).toBe(false);
+
+    // excludeDismissed hides only the dismissed row
+    const active = await repo.query({ excludeDismissed: true, limit: 10 });
+    expect(active.map((r) => r.msg)).toEqual(["kept"]);
   });
 });

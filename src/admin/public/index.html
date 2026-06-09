@@ -78,7 +78,10 @@
     .settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
     .compact-field { margin: 0; min-width: 180px; }
     .notice-list { display: grid; gap: 8px; margin-bottom: 12px; }
-    .notice { border: 1px solid #fedf89; background: #fffaeb; color: #93370d; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+    .notice { display: flex; align-items: flex-start; gap: 10px; border: 1px solid #fedf89; background: #fffaeb; color: #93370d; border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+    .notice-text { flex: 1; min-width: 0; word-break: break-word; }
+    .notice-close { flex: none; border: none; background: transparent; color: #93370d; cursor: pointer; font-size: 16px; line-height: 1; padding: 0 2px; opacity: 0.55; }
+    .notice-close:hover { opacity: 1; }
     .drawer-backdrop { position: fixed; inset: 0; background: rgba(16, 24, 40, .36); z-index: 20; }
     .drawer { position: fixed; top: 0; right: 0; width: min(460px, 100%); height: 100vh; overflow: auto; background: var(--surface); box-shadow: var(--shadow); z-index: 21; padding: 20px; }
     .drawer-header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
@@ -140,6 +143,7 @@
           <button id="tab_accounts_btn" class="tab active" type="button" onclick="setTab('accounts')">Tài khoản</button>
           <button id="tab_logs_btn" class="tab" type="button" onclick="setTab('logs')">Logs</button>
           <button id="tab_settings_btn" class="tab" type="button" onclick="setTab('settings')">Cấu hình</button>
+          <button id="tab_proxies_btn" class="tab" type="button" onclick="setTab('proxies')">Proxy</button>
         </nav>
 
         <section id="tab_accounts" class="tab-panel active">
@@ -182,6 +186,17 @@
           </div>
           <div id="logsMsg" class="message"></div>
           <div id="logsBox" class="logs-box"></div>
+        </section>
+
+        <section id="tab_proxies" class="tab-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Proxy</h2>
+              <p class="muted">Quản lý danh sách proxy dùng cho tài khoản cá nhân.</p>
+            </div>
+            <button class="button button-primary" type="button" onclick="openAddProxyPanel()">Thêm proxy</button>
+          </div>
+          <div id="proxies"></div>
         </section>
 
         <section id="tab_settings" class="tab-panel">

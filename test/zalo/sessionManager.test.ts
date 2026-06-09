@@ -2,16 +2,17 @@ import { describe, it, expect, vi } from "vitest";
 import { SessionManager } from "../../src/zalo/sessionManager.js";
 import { ZaloApi, ZaloThreadKind, IncomingMessage } from "../../src/zalo/types.js";
 
-function fakeApi(): ZaloApi & { fireClosed: () => void } {
-  let closedCb: (r: string) => void = () => {};
+function fakeApi(): ZaloApi {
   return {
     sendText: vi.fn(async () => ({ msgId: "x1" })),
     sendAttachment: vi.fn(async () => ({ msgId: "x2" })),
     getUserInfo: vi.fn(async (uid) => ({ uid, displayName: "N" })),
     onMessage: vi.fn((_cb: (m: IncomingMessage) => void) => {}),
-    onClosed: vi.fn((cb: (r: string) => void) => { closedCb = cb; }),
+    onReaction: vi.fn(),
+    onUndo: vi.fn(),
+    onClosed: vi.fn((_cb: (code: number, reason: string) => void) => {}),
+    getSerializedCookie: vi.fn(() => null),
     stop: vi.fn(async () => {}),
-    fireClosed: () => closedCb("kicked"),
   };
 }
 
@@ -28,15 +29,6 @@ describe("SessionManager", () => {
   it("throws when sending to an unknown account", async () => {
     const mgr = new SessionManager();
     await expect(mgr.sendText(99, "t", ZaloThreadKind.User, "x")).rejects.toThrow(/no active session/i);
-  });
-
-  it("invokes the expiry callback when a session closes", async () => {
-    const api = fakeApi();
-    const onExpired = vi.fn();
-    const mgr = new SessionManager(onExpired);
-    mgr.register(1, api);
-    api.fireClosed();
-    expect(onExpired).toHaveBeenCalledWith(1, "kicked");
   });
 
   it("routes sendText through a registered OA sender", async () => {

@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 
-export type AccountStatus = "pending_qr" | "connected" | "expired" | "logged_out";
+export type AccountStatus = "pending_qr" | "connected" | "reconnecting" | "expired" | "logged_out";
 export type AccountType = "personal" | "oa";
 
 export interface ZaloAccount {
@@ -12,6 +12,8 @@ export interface ZaloAccount {
   chatwootInboxIdentifier: string;
   chatwootInboxId: number | null;
   status: AccountStatus;
+  proxyId: number | null;
+  proxyPending: boolean;
 }
 
 interface Row {
@@ -23,6 +25,8 @@ interface Row {
   chatwoot_inbox_identifier: string;
   chatwoot_inbox_id: string | null;
   status: AccountStatus;
+  proxy_id: string | null;
+  proxy_pending: boolean;
 }
 
 export function rowToAccount(r: Row): ZaloAccount {
@@ -35,6 +39,8 @@ export function rowToAccount(r: Row): ZaloAccount {
     chatwootInboxIdentifier: r.chatwoot_inbox_identifier,
     chatwootInboxId: r.chatwoot_inbox_id == null ? null : Number(r.chatwoot_inbox_id),
     status: r.status,
+    proxyId: r.proxy_id == null ? null : Number(r.proxy_id),
+    proxyPending: r.proxy_pending,
   };
 }
 
@@ -45,11 +51,12 @@ export class AccountRepo {
     label: string;
     chatwootInboxIdentifier: string;
     chatwootInboxId?: number;
+    proxyId?: number | null;
   }): Promise<ZaloAccount> {
     const res = await this.pool.query<Row>(
-      `INSERT INTO zalo_accounts (label, chatwoot_inbox_identifier, chatwoot_inbox_id)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [input.label, input.chatwootInboxIdentifier, input.chatwootInboxId ?? null],
+      `INSERT INTO zalo_accounts (label, chatwoot_inbox_identifier, chatwoot_inbox_id, proxy_id)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [input.label, input.chatwootInboxIdentifier, input.chatwootInboxId ?? null, input.proxyId ?? null],
     );
     return rowToAccount(res.rows[0]);
   }
@@ -98,6 +105,28 @@ export class AccountRepo {
        WHERE id = $1`,
       [id, status, zaloUid ?? null],
     );
+  }
+
+  async setProxy(id: number, proxyId: number | null): Promise<ZaloAccount | null> {
+    const res = await this.pool.query<Row>(
+      `UPDATE zalo_accounts
+       SET proxy_id = $2, proxy_pending = true, updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [id, proxyId],
+    );
+    return res.rows[0] ? rowToAccount(res.rows[0]) : null;
+  }
+
+  async clearProxyPending(id: number): Promise<void> {
+    await this.pool.query(
+      "UPDATE zalo_accounts SET proxy_pending = false, updated_at = now() WHERE id = $1",
+      [id],
+    );
+  }
+
+  async listByProxy(proxyId: number): Promise<ZaloAccount[]> {
+    const res = await this.pool.query<Row>("SELECT * FROM zalo_accounts WHERE proxy_id = $1 ORDER BY id", [proxyId]);
+    return res.rows.map(rowToAccount);
   }
 
   async setOaId(id: number, oaId: string): Promise<void> {

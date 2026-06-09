@@ -7,6 +7,7 @@ const PASS: any = async () => {};
 function buildApp(opts: {
   provisioner?: any;
   refreshInboxIndex?: any;
+  applyProxy?: (id: number) => Promise<void>;
 } = {}) {
   const app = Fastify();
   const accounts = {
@@ -14,21 +15,23 @@ function buildApp(opts: {
     create: vi.fn(async (i: any) => ({ id: 2, label: i.label, status: "pending_qr", chatwootInboxIdentifier: i.chatwootInboxIdentifier, chatwootInboxId: i.chatwootInboxId })),
     createOa: vi.fn(async (i: any) => ({ id: 3, label: i.label, status: "pending_qr", type: "oa", chatwootInboxIdentifier: i.chatwootInboxIdentifier, chatwootInboxId: i.chatwootInboxId, zaloOaId: null })),
     update: vi.fn(async (id: number, p: any) => (id === 99 ? null : { id, label: p.label ?? "Sales", status: "connected", chatwootInboxIdentifier: p.chatwootInboxIdentifier ?? "ident-1", chatwootInboxId: p.chatwootInboxId ?? 9 })),
+    setProxy: vi.fn(async () => null),
+    findById: vi.fn(async (id: number) => (id === 99 ? null : { id, label: "Sales", status: "connected", chatwootInboxIdentifier: "ident-1", proxyId: null as number | null })),
   };
   const qr = { startLogin: vi.fn(async () => ({ qrImageBase64: "data:image/png;base64,AAA" })) };
   const provisioner = opts.provisioner ?? { createInboxForAccount: vi.fn(async () => ({ identifier: "auto-ident", id: 55 })) };
   const refreshInboxIndex = opts.refreshInboxIndex ?? vi.fn(async () => {});
-  registerAdminRoutes(app, accounts as any, qr as any, PASS, { provisioner, refreshInboxIndex });
+  registerAdminRoutes(app, accounts as any, qr as any, PASS, { provisioner, refreshInboxIndex, applyProxy: opts.applyProxy });
   return { app, accounts, qr, provisioner, refreshInboxIndex };
 }
 
 function buildDeleteApp() {
   const app = Fastify();
   const accounts = { delete: vi.fn(async (id: number) => id !== 99) };
-  const sessions = { remove: vi.fn(async () => {}) };
+  const supervisor = { remove: vi.fn(async () => {}) };
   const refreshIndex = vi.fn(async () => {});
-  registerAccountDeleteRoute(app, accounts as any, sessions, refreshIndex, PASS);
-  return { app, accounts, sessions, refreshIndex };
+  registerAccountDeleteRoute(app, accounts as any, supervisor, refreshIndex, PASS);
+  return { app, accounts, supervisor, refreshIndex };
 }
 
 describe("admin routes", () => {
@@ -48,7 +51,7 @@ describe("admin routes", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(provisioner.createInboxForAccount).not.toHaveBeenCalled();
-    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "ident-9", chatwootInboxId: 9 });
+    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "ident-9", chatwootInboxId: 9, proxyId: null });
   });
 
   it("POST /admin/api/accounts forwards existing chatwootInboxId when provided", async () => {
@@ -59,7 +62,7 @@ describe("admin routes", () => {
       payload: { label: "Sales", inboxMode: "existing", chatwootInboxIdentifier: "ident-5", chatwootInboxId: 5 },
     });
     expect(res.statusCode).toBe(200);
-    expect(accounts.create).toHaveBeenCalledWith({ label: "Sales", chatwootInboxIdentifier: "ident-5", chatwootInboxId: 5 });
+    expect(accounts.create).toHaveBeenCalledWith({ label: "Sales", chatwootInboxIdentifier: "ident-5", chatwootInboxId: 5, proxyId: null });
   });
 
   it("POST /admin/api/accounts returns 400 on invalid existing chatwootInboxId", async () => {
@@ -129,7 +132,7 @@ describe("admin routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
     expect(provisioner.createInboxForAccount).not.toHaveBeenCalled();
-    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "oa-ident-1", chatwootInboxId: 7 });
+    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "oa-ident-1", chatwootInboxId: 7, proxyId: null });
   });
 
   it("POST /admin/api/accounts/oa returns 400 when existing inbox is missing chatwootInboxId", async () => {
@@ -149,7 +152,7 @@ describe("admin routes", () => {
     const res = await app.inject({ method: "POST", url: "/admin/api/accounts", payload: { label: "Support" } });
     expect(res.statusCode).toBe(200);
     expect(provisioner.createInboxForAccount).toHaveBeenCalledWith("Support");
-    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55 });
+    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55, proxyId: null });
     expect(refreshInboxIndex).toHaveBeenCalled();
   });
 
@@ -159,7 +162,7 @@ describe("admin routes", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
     expect(provisioner.createInboxForAccount).toHaveBeenCalledWith("OA Support");
-    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55 });
+    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55, proxyId: null });
     expect(refreshInboxIndex).toHaveBeenCalled();
   });
 
@@ -170,7 +173,7 @@ describe("admin routes", () => {
     const { app, accounts } = buildApp({ refreshInboxIndex });
     const res = await app.inject({ method: "POST", url: "/admin/api/accounts", payload: { label: "Support" } });
     expect(res.statusCode).toBe(200);
-    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55 });
+    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55, proxyId: null });
     expect(refreshInboxIndex).toHaveBeenCalled();
   });
 
@@ -182,13 +185,13 @@ describe("admin routes", () => {
     const res = await app.inject({ method: "POST", url: "/admin/api/accounts/oa", payload: { label: "OA Support" } });
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
-    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55 });
+    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55, proxyId: null });
     expect(refreshInboxIndex).toHaveBeenCalled();
   });
 
   it("POST /admin/api/accounts returns 400 when auto mode has no provisioner", async () => {
     const app = Fastify();
-    const accounts = { create: vi.fn(), createOa: vi.fn(), listAll: vi.fn(async () => []), update: vi.fn() };
+    const accounts = { create: vi.fn(), createOa: vi.fn(), listAll: vi.fn(async () => []), update: vi.fn(), setProxy: vi.fn(async () => null) };
     const qr = { startLogin: vi.fn() };
     registerAdminRoutes(app, accounts as any, qr as any, PASS);
     const res = await app.inject({ method: "POST", url: "/admin/api/accounts", payload: { label: "Support" } });
@@ -343,26 +346,67 @@ describe("admin routes", () => {
   });
 
   it("DELETE /admin/api/accounts/:id returns 400 on nonnumeric path id", async () => {
-    const { app, accounts, sessions } = buildDeleteApp();
+    const { app, accounts, supervisor } = buildDeleteApp();
     const res = await app.inject({ method: "DELETE", url: "/admin/api/accounts/abc" });
     expect(res.statusCode).toBe(400);
-    expect(sessions.remove).not.toHaveBeenCalled();
+    expect(supervisor.remove).not.toHaveBeenCalled();
     expect(accounts.delete).not.toHaveBeenCalled();
   });
 
   it("DELETE /admin/api/accounts/:id returns 400 on decimal path id", async () => {
-    const { app, accounts, sessions } = buildDeleteApp();
+    const { app, accounts, supervisor } = buildDeleteApp();
     const res = await app.inject({ method: "DELETE", url: "/admin/api/accounts/1.5" });
     expect(res.statusCode).toBe(400);
-    expect(sessions.remove).not.toHaveBeenCalled();
+    expect(supervisor.remove).not.toHaveBeenCalled();
     expect(accounts.delete).not.toHaveBeenCalled();
   });
 
   it("DELETE /admin/api/accounts/:id returns 400 on prefixed-string path id", async () => {
-    const { app, accounts, sessions } = buildDeleteApp();
+    const { app, accounts, supervisor } = buildDeleteApp();
     const res = await app.inject({ method: "DELETE", url: "/admin/api/accounts/+1" });
     expect(res.statusCode).toBe(400);
-    expect(sessions.remove).not.toHaveBeenCalled();
+    expect(supervisor.remove).not.toHaveBeenCalled();
     expect(accounts.delete).not.toHaveBeenCalled();
+  });
+
+  it("apply-proxy route calls opts.applyProxy with the id", async () => {
+    const applied: number[] = [];
+    const { app } = buildApp({ applyProxy: async (id) => { applied.push(id); } });
+    const res = await app.inject({ method: "POST", url: "/admin/api/accounts/5/apply-proxy" });
+    expect(res.statusCode).toBe(200);
+    expect(applied).toEqual([5]);
+  });
+
+  it("apply-proxy route returns 400 when applyProxy is not configured", async () => {
+    const { app } = buildApp();
+    const res = await app.inject({ method: "POST", url: "/admin/api/accounts/5/apply-proxy" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ ok: false, error: "apply_proxy_unavailable" });
+  });
+
+  it("apply-proxy route returns 400 on nonnumeric path id", async () => {
+    const applied: number[] = [];
+    const { app } = buildApp({ applyProxy: async (id) => { applied.push(id); } });
+    const res = await app.inject({ method: "POST", url: "/admin/api/accounts/abc/apply-proxy" });
+    expect(res.statusCode).toBe(400);
+    expect(applied).toHaveLength(0);
+  });
+
+  it("PATCH /admin/api/accounts/:id calls setProxy when proxy actually changes", async () => {
+    const { app, accounts } = buildApp();
+    // findById returns proxyId: null; patching with proxyId: 7 is a real change
+    accounts.findById.mockResolvedValueOnce({ id: 2, label: "Sales", status: "connected", chatwootInboxIdentifier: "ident-1", proxyId: null });
+    const res = await app.inject({ method: "PATCH", url: "/admin/api/accounts/2", payload: { label: "Sales", proxyId: 7 } });
+    expect(res.statusCode).toBe(200);
+    expect(accounts.setProxy).toHaveBeenCalledWith(2, 7);
+  });
+
+  it("PATCH /admin/api/accounts/:id does NOT call setProxy when proxy is unchanged", async () => {
+    const { app, accounts } = buildApp();
+    // findById returns proxyId: 7; patching with the same proxyId: 7 is not a change
+    accounts.findById.mockResolvedValueOnce({ id: 2, label: "Sales", status: "connected", chatwootInboxIdentifier: "ident-1", proxyId: 7 });
+    const res = await app.inject({ method: "PATCH", url: "/admin/api/accounts/2", payload: { label: "Renamed", proxyId: 7 } });
+    expect(res.statusCode).toBe(200);
+    expect(accounts.setProxy).not.toHaveBeenCalled();
   });
 });

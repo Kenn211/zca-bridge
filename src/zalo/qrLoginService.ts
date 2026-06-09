@@ -1,24 +1,24 @@
 import { Zalo, LoginQRCallbackEventType } from "zca-js";
 import type { LoginQRCallbackEvent } from "zca-js";
 import { QrLoginService } from "../admin/routes.js";
-import { SessionManager } from "./sessionManager.js";
-import { ZcaAdapter } from "./zcaAdapter.js";
 import { AccountRepo } from "../store/accountRepo.js";
 import { MappingRepo } from "../store/mappingRepo.js";
+import { ReconnectSupervisor } from "./reconnectSupervisor.js";
 import { encryptCredentials } from "../crypto/credentials.js";
-import { IncomingMessage } from "./types.js";
+import type { ProxyOptions } from "./proxyOptions.js";
 
 export class ZcaQrLoginService implements QrLoginService {
   constructor(
-    private sessions: SessionManager,
+    private supervisor: ReconnectSupervisor,
     private accounts: AccountRepo,
     private mapping: MappingRepo,
     private credentialsKey: Buffer,
-    private onInbound: (accountId: number, msg: IncomingMessage) => void
+    private resolveProxyOptions: (accountId: number) => Promise<ProxyOptions>,
   ) {}
 
   async startLogin(accountId: number): Promise<{ qrImageBase64: string }> {
-    const zalo = new Zalo({ selfListen: true });
+    const proxy = await this.resolveProxyOptions(accountId);
+    const zalo = new Zalo({ selfListen: true, ...proxy });
     return await new Promise((resolve, reject) => {
       let resolved = false;
       zalo
@@ -32,10 +32,9 @@ export class ZcaQrLoginService implements QrLoginService {
             try {
               const creds = { imei: event.data.imei, cookie: event.data.cookie, userAgent: event.data.userAgent, language: "vi" };
               await this.mapping.saveCredentials(accountId, encryptCredentials(creds, this.credentialsKey));
-              const adapter = await ZcaAdapter.fromCredentials(creds);
-              this.sessions.register(accountId, adapter);
-              this.sessions.bindInbound(accountId, this.onInbound);
-              await this.accounts.updateStatus(accountId, "connected");
+              // Hand off: the supervisor loads the just-saved creds, builds + registers the adapter,
+              // binds inbound, sets status connected, and persists the refreshed cookie.
+              await this.supervisor.connect(accountId);
             } catch (err) {
               console.error("QR login GotLoginInfo error for account", accountId, err);
               await this.accounts.updateStatus(accountId, "expired").catch(() => {});

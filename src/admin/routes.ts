@@ -12,6 +12,7 @@ export interface InboxProvisioner {
 export interface AdminRouteOptions {
   provisioner?: InboxProvisioner;
   refreshInboxIndex?: () => Promise<void>;
+  applyProxy?: (accountId: number) => Promise<void>;
 }
 
 type AccountCreateBody = {
@@ -19,6 +20,7 @@ type AccountCreateBody = {
   inboxMode?: "auto" | "existing" | string;
   chatwootInboxIdentifier?: string;
   chatwootInboxId?: number | string | null;
+  proxyId?: number | string | null;
 };
 
 type Pre = (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -62,10 +64,16 @@ export function registerAdminRoutes(
     return inboxId;
   };
 
+  const parseProxyId = (value: unknown): number | null | undefined => {
+    if (value === undefined) return undefined;      // not provided → leave unchanged
+    if (value === null || value === "") return null; // explicit "no proxy"
+    return parsePositiveSafeInt(value);             // number | null (null = invalid)
+  };
+
   const createInput = async (
     body: AccountCreateBody,
     reply: FastifyReply,
-  ): Promise<{ label: string; chatwootInboxIdentifier: string; chatwootInboxId?: number } | null> => {
+  ): Promise<{ label: string; chatwootInboxIdentifier: string; chatwootInboxId?: number; proxyId?: number | null } | null> => {
     const label = typeof body?.label === "string" ? body.label.trim() : "";
     if (!label) {
       reply.code(400).send({ ok: false });
@@ -74,6 +82,13 @@ export function registerAdminRoutes(
 
     if (body?.inboxMode !== undefined && body.inboxMode !== "auto" && body.inboxMode !== "existing") {
       reply.code(400).send({ ok: false, error: "invalid_inbox_mode" });
+      return null;
+    }
+
+    const proxyId = parseProxyId(body?.proxyId);
+    if (proxyId === null && body?.proxyId !== null && body?.proxyId !== "" && body?.proxyId !== undefined) {
+      // a non-empty value that failed to parse to a positive int
+      reply.code(400).send({ ok: false, error: "invalid_proxy_id" });
       return null;
     }
 
@@ -91,7 +106,7 @@ export function registerAdminRoutes(
       }
       const inboxId = parseInboxId(body.chatwootInboxId, reply);
       if (inboxId === null) return null;
-      return { label, chatwootInboxIdentifier: ident, chatwootInboxId: inboxId };
+      return { label, chatwootInboxIdentifier: ident, chatwootInboxId: inboxId, proxyId: proxyId ?? null };
     }
 
     if (!opts.provisioner) {
@@ -101,7 +116,7 @@ export function registerAdminRoutes(
 
     try {
       const inbox = await opts.provisioner.createInboxForAccount(label);
-      return { label, chatwootInboxIdentifier: inbox.identifier, chatwootInboxId: inbox.id };
+      return { label, chatwootInboxIdentifier: inbox.identifier, chatwootInboxId: inbox.id, proxyId: proxyId ?? null };
     } catch (err: any) {
       const code = typeof err?.code === "string" ? err.code : "chatwoot_inbox_create_failed";
       const status = code === "chatwoot_config_missing" ? 400 : 502;
@@ -136,7 +151,7 @@ export function registerAdminRoutes(
     },
   );
 
-  app.patch<{ Params: { id: string }; Body: { label?: string; chatwootInboxIdentifier?: string; chatwootInboxId?: number | string | null } }>(
+  app.patch<{ Params: { id: string }; Body: { label?: string; chatwootInboxIdentifier?: string; chatwootInboxId?: number | string | null; proxyId?: number | string | null } }>(
     "/admin/api/accounts/:id",
     { preHandler: guard },
     async (req, reply) => {
@@ -159,6 +174,16 @@ export function registerAdminRoutes(
         if (inboxId === null) return reply;
         patch.chatwootInboxId = inboxId;
       }
+      const proxyId = parseProxyId(req.body?.proxyId);
+      if (proxyId === null && req.body?.proxyId !== null && req.body?.proxyId !== "" && req.body?.proxyId !== undefined) {
+        return reply.code(400).send({ ok: false, error: "invalid_proxy_id" });
+      }
+      if (proxyId !== undefined) {
+        const cur = await accounts.findById(id);
+        if (cur && cur.proxyId !== proxyId) {
+          await accounts.setProxy(id, proxyId); // marks proxy_pending = true (only on a real change)
+        }
+      }
       const updated = await accounts.update(id, patch);
       if (!updated) return reply.code(404).send({ ok: false });
       return reply.send({ ok: true, account: updated });
@@ -174,12 +199,24 @@ export function registerAdminRoutes(
       return qr.startLogin(id);
     },
   );
+
+  app.post<{ Params: { id: string } }>(
+    "/admin/api/accounts/:id/apply-proxy",
+    { preHandler: guard },
+    async (req, reply) => {
+      const id = parsePositiveSafeInt(req.params.id);
+      if (id === null) return reply.code(400).send({ ok: false });
+      if (!opts.applyProxy) return reply.code(400).send({ ok: false, error: "apply_proxy_unavailable" });
+      await opts.applyProxy(id);
+      return reply.send({ ok: true });
+    },
+  );
 }
 
 export function registerAccountDeleteRoute(
   app: FastifyInstance,
   accounts: Pick<AccountRepo, "delete">,
-  sessions: { remove: (accountId: number) => Promise<void> },
+  supervisor: { remove: (accountId: number) => Promise<void> },
   refreshIndex: () => Promise<void>,
   guard: Pre,
 ): void {
@@ -189,7 +226,7 @@ export function registerAccountDeleteRoute(
     async (req, reply) => {
       const id = parsePositiveSafeInt(req.params.id);
       if (id === null) return reply.code(400).send({ ok: false });
-      await sessions.remove(id);
+      await supervisor.remove(id);
       const deleted = await accounts.delete(id);
       if (!deleted) return reply.code(404).send({ ok: false });
       await refreshIndex();

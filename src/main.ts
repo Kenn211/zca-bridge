@@ -26,8 +26,12 @@ import { registerLogsRoutes } from "./admin/logsRoutes.js";
 import { buildWebhookUrls, registerWebhookInfoRoutes } from "./admin/webhookInfoRoutes.js";
 import { deriveSessionSecret } from "./admin/auth.js";
 import { SessionManager } from "./zalo/sessionManager.js";
+import { ReconnectSupervisor, isZaloAuthError } from "./zalo/reconnectSupervisor.js";
 import { ZcaAdapter } from "./zalo/zcaAdapter.js";
 import { ZcaQrLoginService } from "./zalo/qrLoginService.js";
+import { ProxyRepo } from "./store/proxyRepo.js";
+import { buildProxyOptions, type ProxyOptions } from "./zalo/proxyOptions.js";
+import { registerProxyRoutes } from "./admin/proxyRoutes.js";
 import { InboundHandler } from "./handlers/inbound.js";
 import { OutboundHandler } from "./handlers/outbound.js";
 import { makeOutboundNotifier } from "./handlers/outboundNotify.js";
@@ -35,7 +39,7 @@ import { deadLetterNote, windowNote } from "./handlers/outboundNotes.js";
 import { ReactionHandler, UndoHandler } from "./handlers/events.js";
 import { makeEnricher } from "./handlers/enrichment.js";
 import { Worker } from "./worker/worker.js";
-import { decryptCredentials } from "./crypto/credentials.js";
+import { decryptCredentials, encryptCredentials } from "./crypto/credentials.js";
 import { IncomingMessage, ReactionEvent, UndoEvent } from "./zalo/types.js";
 import { LocalDiskArchive } from "./media/archive.js";
 import { registerMediaRoute } from "./media/mediaRoute.js";
@@ -84,6 +88,7 @@ async function main(): Promise<void> {
 
   const accounts = new AccountRepo(pool);
   const mapping = new MappingRepo(pool);
+  const proxyRepo = new ProxyRepo(pool, cfg.credentialsKey);
   const conversations = new ConversationRepo(pool);
   const jobs = new JobQueueRepo(pool);
   const chatwoot = new ChatwootClient(cfg.chatwootBaseUrl);
@@ -108,10 +113,7 @@ async function main(): Promise<void> {
     for (const [inboxId, identifier] of nextIndex) inboxIndex.set(inboxId, identifier);
   }
 
-  const sessions = new SessionManager((accountId, reason) => {
-    app.log.warn({ accountId, reason }, "zalo session expired");
-    accounts.updateStatus(accountId, "expired").catch(() => {});
-  });
+  const sessions = new SessionManager();
 
   const infoCard = new InfoCardRepo(pool);
   // OA infra (tokens/oauth) only exists inside the `if (cfg.oa)` block below, so the
@@ -201,22 +203,42 @@ async function main(): Promise<void> {
   const worker = new Worker(jobs, dispatch, onPermanentFailure);
   wakeWorker = () => worker.wake();
 
-  // Restore connected sessions from saved credentials
+  const resolveProxyOptions = async (accountId: number): Promise<ProxyOptions> => {
+    const acc = await accounts.findById(accountId);
+    if (!acc?.proxyId) return {};
+    const proxy = await proxyRepo.get(acc.proxyId);
+    return buildProxyOptions(proxy);
+  };
+
+  const supervisor = new ReconnectSupervisor({
+    loadCredentials: async (id) => {
+      const blob = await mapping.loadCredentials(id);
+      return blob ? decryptCredentials<any>(blob, cfg.credentialsKey) : null;
+    },
+    saveCredentials: async (id, creds) => {
+      await mapping.saveCredentials(id, encryptCredentials(creds, cfg.credentialsKey));
+    },
+    createAdapter: async (accountId, creds) => ZcaAdapter.fromCredentials(creds, await resolveProxyOptions(accountId)),
+    isAuthError: isZaloAuthError,
+    register: (id, adapter) => sessions.register(id, adapter as any),
+    unregister: (id) => sessions.remove(id),
+    bindInbound: (id) => sessions.bindInbound(id, onInbound),
+    setStatus: async (id, status) => {
+      await accounts.updateStatus(id, status);
+      if (status === "connected") await accounts.clearProxyPending(id);
+    },
+    schedule: (fn, ms) => { const t = setTimeout(fn, ms); return { cancel: () => clearTimeout(t) }; },
+    log: app.log,
+  });
+
+  // Restore personal sessions (connected or mid-reconnect) under supervision.
   for (const acc of await accounts.listAll()) {
-    if (acc.status !== "connected") continue;
-    const blob = await mapping.loadCredentials(acc.id);
-    if (!blob) continue;
-    try {
-      const creds = decryptCredentials<any>(blob, cfg.credentialsKey);
-      const adapter = await ZcaAdapter.fromCredentials(creds);
-      sessions.register(acc.id, adapter);
-      sessions.bindInbound(acc.id, onInbound);
-    } catch {
-      await accounts.updateStatus(acc.id, "expired");
-    }
+    if (acc.type === "oa") continue;
+    if (acc.status !== "connected" && acc.status !== "reconnecting") continue;
+    await supervisor.connect(acc.id).catch((err) => app.log.error({ event: "zalo_restore_failed", accountId: acc.id, err }, "failed to restore zalo session"));
   }
 
-  const qr = new ZcaQrLoginService(sessions, accounts, mapping, cfg.credentialsKey, onInbound);
+  const qr = new ZcaQrLoginService(supervisor, accounts, mapping, cfg.credentialsKey, resolveProxyOptions);
 
   await app.register(fastifyStatic, { root: join(here, "admin/public"), prefix: "/admin/" });
   // DURABLE PATH: webhook persists the event then returns 200 immediately.
@@ -229,11 +251,16 @@ async function main(): Promise<void> {
   };
   app.get("/healthz", async () => ({ ok: true }));
   registerAuthRoutes(app, { users: adminUsers, sessionSecret });
-  registerAdminRoutes(app, accounts, qr, guard, { provisioner: inboxProvisioner, refreshInboxIndex: refreshIndex });
-  registerAccountDeleteRoute(app, accounts, sessions, refreshIndex, guard);
+  registerAdminRoutes(app, accounts, qr, guard, {
+    provisioner: inboxProvisioner,
+    refreshInboxIndex: refreshIndex,
+    applyProxy: async (id) => { await supervisor.remove(id); await supervisor.connect(id); },
+  });
+  registerAccountDeleteRoute(app, accounts, supervisor, refreshIndex, guard);
   registerSettingsRoutes(app, settingsRepo, guard, requestRestart);
   registerLogsRoutes(app, logsRepo, guard);
   registerInfoCardRoutes(app, infoCard, guard);
+  registerProxyRoutes(app, proxyRepo, accounts, guard);
   registerWebhookInfoRoutes(app, webhookUrls, guard);
   app.addHook("onReady", refreshIndex);
 
@@ -322,9 +349,15 @@ async function main(): Promise<void> {
   const indexRefresh = setInterval(() => { refreshIndex().catch((err) => app.log.error({ err }, "index refresh failed")); }, 30_000);
   indexRefresh.unref();
 
+  // Re-persist live cookies every 30 min so a restart logs in with a fresh cookie, not the QR-time one.
+  const cookieTimer = setInterval(() => { void supervisor.persistAllCookies(); }, 30 * 60 * 1000);
+  cookieTimer.unref();
+
   async function shutdown(): Promise<void> {
     worker.stop();
     clearInterval(indexRefresh);
+    clearInterval(cookieTimer);
+    try { await supervisor.persistAllCookies(); } catch { /* ignore */ }
     try { await sessions.stopAll(); } catch { /* ignore */ }
     try { await app.close(); } catch { /* ignore */ }
     try { await pool.end(); } catch { /* ignore */ }

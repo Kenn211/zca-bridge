@@ -4,13 +4,14 @@ import {
   normalizeIncoming, normalizeReaction, normalizeUndo, toZcaThreadType,
 } from "./types.js";
 import { resolveStickerImage } from "./stickerResolver.js";
+import type { ProxyOptions } from "./proxyOptions.js";
 
 export class ZcaAdapter implements ZaloApi {
   private constructor(private api: any) {}
 
   /** Login from saved credentials and start listening. */
-  static async fromCredentials(creds: ZaloCredentials): Promise<ZcaAdapter> {
-    const zalo = new Zalo({ selfListen: true });
+  static async fromCredentials(creds: ZaloCredentials, proxy: ProxyOptions = {}): Promise<ZcaAdapter> {
+    const zalo = new Zalo({ selfListen: true, ...proxy });
     const api = await zalo.login({
       imei: creds.imei, cookie: creds.cookie as any, userAgent: creds.userAgent, language: creds.language ?? "vi",
     });
@@ -87,9 +88,22 @@ export class ZcaAdapter implements ZaloApi {
     });
   }
 
-  onClosed(cb: (reason: string) => void): void {
-    this.api.listener.on("closed", (_code: unknown, reason: string) => cb(reason ?? "closed"));
-    this.api.listener.on("disconnected", (_code: unknown, reason: string) => cb(reason ?? "disconnected"));
+  onClosed(cb: (code: number, reason: string) => void): void {
+    // Only the terminal `closed` event means zca-js gave up. `disconnected` fires on every
+    // websocket drop *before* its own retry, so reacting to it would tear down a session that
+    // is about to recover. The supervisor recreates the session when `closed` fires.
+    this.api.listener.on("closed", (code: number, reason: string) => cb(Number(code), reason ?? "closed"));
+  }
+
+  /** Serialize the live cookie jar into the shape `Zalo.login()` accepts, so restarts use a fresh cookie. */
+  getSerializedCookie(): unknown {
+    try {
+      const jar = this.api.getCookie?.();
+      if (!jar) return null;
+      return typeof jar.toJSON === "function" ? jar.toJSON() : jar;
+    } catch {
+      return null;
+    }
   }
 
   async stop(): Promise<void> {
