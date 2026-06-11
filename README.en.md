@@ -53,7 +53,7 @@ The **Zalo Official Account (OA)** channel uses Zalo's official API and is not s
 - Per-account egress proxy for personal accounts (HTTP, HTTPS, SOCKS5, optional user/password) to
   isolate each account's outbound IP.
 - Admin dashboard at `/admin/` for first-run admin setup, Chatwoot/OA settings, account management,
-  proxy management, QR login, webhook URLs, and logs.
+  proxy management, QR login, webhook URLs, log export, and dismissing handled warnings.
 
 ## Screenshots
 
@@ -65,9 +65,9 @@ secrets.
 | --- | --- |
 | <img src="assets/images/admin-preview/first-run-setup.png" alt="First-run admin account setup screen" width="420"> | <img src="assets/images/admin-preview/dashboard-desktop.png" alt="Zalo account management dashboard" width="420"> |
 
-| Settings | Logs | Mobile |
-| --- | --- | --- |
-| <img src="assets/images/admin-preview/settings-desktop.png" alt="Chatwoot, Zalo OA, and webhook URL settings screen" width="300"> | <img src="assets/images/admin-preview/logs-desktop.png" alt="Operations log screen" width="300"> | <img src="assets/images/admin-preview/dashboard-mobile.png" alt="Admin dashboard on a mobile viewport" width="180"> |
+| Proxy | Settings | Logs | Mobile |
+| --- | --- | --- | --- |
+| <img src="assets/images/admin-preview/proxy-desktop.png" alt="Per-account proxy management screen" width="260"> | <img src="assets/images/admin-preview/settings-desktop.png" alt="Chatwoot, Zalo OA, and webhook URL settings screen" width="260"> | <img src="assets/images/admin-preview/logs-desktop.png" alt="Operations log screen" width="260"> | <img src="assets/images/admin-preview/dashboard-mobile.png" alt="Admin dashboard on a mobile viewport" width="160"> |
 
 ## Architecture
 
@@ -86,7 +86,7 @@ secrets.
 - `src/chatwoot` — client, Application API, webhook server, inbox provisioning.
 - `src/handlers` — inbound/outbound orchestration, failure notes, contact-info sync.
 - `src/worker` and `src/store` — durable queue, repositories (including proxies), migrations.
-- `src/admin` — admin API, login, settings, webhook info, log dashboard.
+- `src/admin` — admin API, login, settings, webhook info, proxy CRUD, log dashboard.
 - `src/media` — archive and tokenized media serving.
 
 ## Requirements
@@ -161,10 +161,15 @@ from inside the container.
 ```bash
 npm ci
 npm run build
+mkdir -p dist/store/migrations dist/admin/public
+cp src/store/migrations/*.sql dist/store/migrations/
+cp -r src/admin/public/. dist/admin/public/
 npm start
 ```
 
-Migrations run automatically on startup. The bridge listens on `$PORT`, default `4000`.
+`npm run build` only compiles TypeScript; the `cp` commands place SQL migrations and static admin UI
+assets into `dist`, matching what the Dockerfile does. Migrations run automatically on startup. The
+bridge listens on `$PORT`, default `4000`.
 
 Development mode:
 
@@ -194,17 +199,21 @@ Both features apply only to **personal Zalo accounts** (`zca-js`); the OA channe
 
 **Per-account proxy.** In the admin **Proxy** tab you register a list of proxies (`http`, `https`, or
 `socks5`, with host, port, and optional user/password). Proxy passwords are encrypted at rest. Each
-personal account can be bound to one proxy so all of that account's traffic (websocket and HTTP) goes
-through a dedicated IP — useful for isolating IPs per account. Changing the proxy on a running account
-shows a **"Needs proxy applied"** badge; click **"Apply proxy"** to have the bridge reconnect through
-the new proxy. Deleting a proxy still in use requires confirmation and automatically detaches it from
-the affected accounts.
+personal account can be bound to one proxy so all of that account's websocket and HTTP traffic goes
+through a dedicated IP — useful for isolating IPs per account. Proxy passwords are never returned by
+the admin API. Changing the proxy on a running account shows a **"Needs proxy applied"** badge; click
+**"Apply proxy"** to have the bridge reconnect through the new proxy. Deleting a proxy still in use
+requires confirmation and automatically detaches it from the affected accounts.
 
 **Auto-reconnect.** When a personal account's `zca-js` session drops, a supervisor recreates the
 session with exponential backoff (5s, 15s, 45s, 2 min, capped at 5 min). During this time the account
 shows a **"Reconnecting…"** status. Network and proxy errors are treated as transient and retried.
 Only when an error clearly indicates an expired session/login does the account switch to a state that
 requires a manual **QR rescan**.
+
+**Operational logs.** The dashboard surfaces recent warnings/errors; operators can dismiss handled
+warnings so they no longer appear in the summary. The **Logs** tab still supports filtering, copying,
+and JSON export for debugging.
 
 ## Tests
 
@@ -216,7 +225,8 @@ The test suite uses Vitest. If tests involving `sharp` fail to load the module, 
 native/optional dependencies are installed for the current platform, then rerun tests.
 
 Some repository tests require `TEST_DATABASE_URL`; without it, those tests are intentionally skipped.
-See [ROADMAP.md](ROADMAP.md) for the current test status and maintainer roadmap.
+Latest local check on the current code: 71 test files passed, 7 test files were intentionally skipped;
+440 tests passed, 29 tests skipped. See [ROADMAP.md](ROADMAP.md) for the maintainer roadmap.
 
 ## How Codex Is Used
 
