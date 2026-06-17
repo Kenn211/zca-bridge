@@ -1,6 +1,6 @@
 {
   "name": "zca-bridge",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,6 +11,7 @@
     "start": "node dist/main.js",
     "dev": "tsx watch src/main.ts",
     "migrate": "tsx src/store/migrate.ts",
+    "check:no-pro": "tsx scripts/checkNoPro.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
