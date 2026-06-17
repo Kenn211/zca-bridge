@@ -22,7 +22,7 @@ function build(consult: any) {
   const appClient = { enabled: false, createIncomingMessage: vi.fn(), createOutgoingMessage: vi.fn(async () => ({ id: 2 })) };
   const archive = { put: vi.fn(), urlFor: vi.fn(() => "u") };
   const enrich = vi.fn(async () => {});
-  const h = new InboundHandler(chatwoot as any, mapping as any, conversations as any, enrich, appClient as any, archive as any, 40 * 1024 * 1024, undefined, consult);
+  const h = new InboundHandler(chatwoot as any, mapping as any, conversations as any, enrich, (async () => appClient) as any, archive as any, 40 * 1024 * 1024, undefined, consult);
   return { h };
 }
 

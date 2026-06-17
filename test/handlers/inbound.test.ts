@@ -39,7 +39,7 @@ const CAP = 40 * 1024 * 1024;
 
 function make(d: ReturnType<typeof deps>, cap = CAP) {
   return new InboundHandler(
-    d.chatwoot as any, d.mapping as any, d.conversations as any, d.enrich, d.appClient as any, d.archive, cap,
+    d.chatwoot as any, d.mapping as any, d.conversations as any, d.enrich, (async () => d.appClient) as any, d.archive, cap,
   );
 }
 

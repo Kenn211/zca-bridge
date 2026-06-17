@@ -26,6 +26,13 @@ describe("settings routes", () => {
       zalo_oa_app_secret: { set: false },
       zalo_oa_secret_key: { set: false },
       zalo_oa_oauth_redirect: "",
+      alert_telegram_enabled: "",
+      alert_telegram_bot_token: { set: false },
+      alert_telegram_chat_id: "",
+      alert_webhook_enabled: "",
+      alert_webhook_url: "",
+      alert_reconnecting_threshold_sec: "",
+      alert_cooldown_sec: "",
     });
   });
 

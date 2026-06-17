@@ -5,7 +5,6 @@ import { registerAdminRoutes, registerAccountDeleteRoute } from "../../src/admin
 const PASS: any = async () => {};
 
 function buildApp(opts: {
-  provisioner?: any;
   refreshInboxIndex?: any;
   applyProxy?: (id: number) => Promise<void>;
 } = {}) {
@@ -19,10 +18,9 @@ function buildApp(opts: {
     findById: vi.fn(async (id: number) => (id === 99 ? null : { id, label: "Sales", status: "connected", chatwootInboxIdentifier: "ident-1", proxyId: null as number | null })),
   };
   const qr = { startLogin: vi.fn(async () => ({ qrImageBase64: "data:image/png;base64,AAA" })) };
-  const provisioner = opts.provisioner ?? { createInboxForAccount: vi.fn(async () => ({ identifier: "auto-ident", id: 55 })) };
   const refreshInboxIndex = opts.refreshInboxIndex ?? vi.fn(async () => {});
-  registerAdminRoutes(app, accounts as any, qr as any, PASS, { provisioner, refreshInboxIndex, applyProxy: opts.applyProxy });
-  return { app, accounts, qr, provisioner, refreshInboxIndex };
+  registerAdminRoutes(app, accounts as any, qr as any, PASS, { refreshInboxIndex, applyProxy: opts.applyProxy });
+  return { app, accounts, qr, refreshInboxIndex };
 }
 
 function buildDeleteApp() {
@@ -43,15 +41,14 @@ describe("admin routes", () => {
   });
 
   it("POST /admin/api/accounts creates an account with an existing inbox", async () => {
-    const { app, accounts, provisioner } = buildApp();
+    const { app, accounts } = buildApp();
     const res = await app.inject({
       method: "POST",
       url: "/admin/api/accounts",
-      payload: { label: "Support", inboxMode: "existing", chatwootInboxIdentifier: "ident-9", chatwootInboxId: 9 },
+      payload: { label: "Support", chatwootInboxIdentifier: "ident-9", chatwootInboxId: 9 },
     });
     expect(res.statusCode).toBe(200);
-    expect(provisioner.createInboxForAccount).not.toHaveBeenCalled();
-    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "ident-9", chatwootInboxId: 9, proxyId: null });
+    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "ident-9", chatwootInboxId: 9, proxyId: null, chatwootAccountId: null });
   });
 
   it("POST /admin/api/accounts forwards existing chatwootInboxId when provided", async () => {
@@ -59,10 +56,10 @@ describe("admin routes", () => {
     const res = await app.inject({
       method: "POST",
       url: "/admin/api/accounts",
-      payload: { label: "Sales", inboxMode: "existing", chatwootInboxIdentifier: "ident-5", chatwootInboxId: 5 },
+      payload: { label: "Sales", chatwootInboxIdentifier: "ident-5", chatwootInboxId: 5 },
     });
     expect(res.statusCode).toBe(200);
-    expect(accounts.create).toHaveBeenCalledWith({ label: "Sales", chatwootInboxIdentifier: "ident-5", chatwootInboxId: 5, proxyId: null });
+    expect(accounts.create).toHaveBeenCalledWith({ label: "Sales", chatwootInboxIdentifier: "ident-5", chatwootInboxId: 5, proxyId: null, chatwootAccountId: null });
   });
 
   it("POST /admin/api/accounts returns 400 on invalid existing chatwootInboxId", async () => {
@@ -123,16 +120,15 @@ describe("admin routes", () => {
   });
 
   it("POST /admin/api/accounts/oa creates an OA account with an existing inbox", async () => {
-    const { app, accounts, provisioner } = buildApp();
+    const { app, accounts } = buildApp();
     const res = await app.inject({
       method: "POST",
       url: "/admin/api/accounts/oa",
-      payload: { label: "OA Support", inboxMode: "existing", chatwootInboxIdentifier: "oa-ident-1", chatwootInboxId: 7 },
+      payload: { label: "OA Support", chatwootInboxIdentifier: "oa-ident-1", chatwootInboxId: 7 },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
-    expect(provisioner.createInboxForAccount).not.toHaveBeenCalled();
-    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "oa-ident-1", chatwootInboxId: 7, proxyId: null });
+    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "oa-ident-1", chatwootInboxId: 7, proxyId: null, chatwootAccountId: null });
   });
 
   it("POST /admin/api/accounts/oa returns 400 when existing inbox is missing chatwootInboxId", async () => {
@@ -147,33 +143,14 @@ describe("admin routes", () => {
     expect(accounts.createOa).not.toHaveBeenCalled();
   });
 
-  it("POST /admin/api/accounts auto-creates an inbox by default", async () => {
-    const { app, accounts, provisioner, refreshInboxIndex } = buildApp();
-    const res = await app.inject({ method: "POST", url: "/admin/api/accounts", payload: { label: "Support" } });
-    expect(res.statusCode).toBe(200);
-    expect(provisioner.createInboxForAccount).toHaveBeenCalledWith("Support");
-    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55, proxyId: null });
-    expect(refreshInboxIndex).toHaveBeenCalled();
-  });
-
-  it("POST /admin/api/accounts/oa auto-creates an inbox by default", async () => {
-    const { app, accounts, provisioner, refreshInboxIndex } = buildApp();
-    const res = await app.inject({ method: "POST", url: "/admin/api/accounts/oa", payload: { label: "OA Support" } });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().ok).toBe(true);
-    expect(provisioner.createInboxForAccount).toHaveBeenCalledWith("OA Support");
-    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55, proxyId: null });
-    expect(refreshInboxIndex).toHaveBeenCalled();
-  });
-
   it("POST /admin/api/accounts still succeeds when refreshInboxIndex fails", async () => {
     const refreshInboxIndex = vi.fn(async () => {
       throw new Error("refresh failed");
     });
     const { app, accounts } = buildApp({ refreshInboxIndex });
-    const res = await app.inject({ method: "POST", url: "/admin/api/accounts", payload: { label: "Support" } });
+    const res = await app.inject({ method: "POST", url: "/admin/api/accounts", payload: { label: "Support", chatwootInboxIdentifier: "ident-9", chatwootInboxId: 9 } });
     expect(res.statusCode).toBe(200);
-    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55, proxyId: null });
+    expect(accounts.create).toHaveBeenCalledWith({ label: "Support", chatwootInboxIdentifier: "ident-9", chatwootInboxId: 9, proxyId: null, chatwootAccountId: null });
     expect(refreshInboxIndex).toHaveBeenCalled();
   });
 
@@ -182,44 +159,11 @@ describe("admin routes", () => {
       throw new Error("refresh failed");
     });
     const { app, accounts } = buildApp({ refreshInboxIndex });
-    const res = await app.inject({ method: "POST", url: "/admin/api/accounts/oa", payload: { label: "OA Support" } });
+    const res = await app.inject({ method: "POST", url: "/admin/api/accounts/oa", payload: { label: "OA Support", chatwootInboxIdentifier: "oa-ident-1", chatwootInboxId: 7 } });
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
-    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "auto-ident", chatwootInboxId: 55, proxyId: null });
+    expect(accounts.createOa).toHaveBeenCalledWith({ label: "OA Support", chatwootInboxIdentifier: "oa-ident-1", chatwootInboxId: 7, proxyId: null, chatwootAccountId: null });
     expect(refreshInboxIndex).toHaveBeenCalled();
-  });
-
-  it("POST /admin/api/accounts returns 400 when auto mode has no provisioner", async () => {
-    const app = Fastify();
-    const accounts = { create: vi.fn(), createOa: vi.fn(), listAll: vi.fn(async () => []), update: vi.fn(), setProxy: vi.fn(async () => null) };
-    const qr = { startLogin: vi.fn() };
-    registerAdminRoutes(app, accounts as any, qr as any, PASS);
-    const res = await app.inject({ method: "POST", url: "/admin/api/accounts", payload: { label: "Support" } });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({ ok: false, error: "chatwoot_config_missing" });
-    expect(accounts.create).not.toHaveBeenCalled();
-  });
-
-  it("POST /admin/api/accounts does not create a bridge account when Chatwoot provisioning fails", async () => {
-    const provisioner = { createInboxForAccount: vi.fn(async () => { throw Object.assign(new Error("bad token"), { code: "chatwoot_auth_failed" }); }) };
-    const { app, accounts } = buildApp({ provisioner });
-    const res = await app.inject({ method: "POST", url: "/admin/api/accounts", payload: { label: "Support" } });
-    expect(res.statusCode).toBe(502);
-    expect(res.json()).toMatchObject({ ok: false, error: "chatwoot_auth_failed" });
-    expect(accounts.create).not.toHaveBeenCalled();
-  });
-
-  it("POST /admin/api/accounts returns 400 on invalid inboxMode", async () => {
-    const { app, accounts, provisioner } = buildApp();
-    const res = await app.inject({
-      method: "POST",
-      url: "/admin/api/accounts",
-      payload: { label: "Support", inboxMode: "existng" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toMatchObject({ ok: false, error: "invalid_inbox_mode" });
-    expect(provisioner.createInboxForAccount).not.toHaveBeenCalled();
-    expect(accounts.create).not.toHaveBeenCalled();
   });
 
   it("POST /admin/api/accounts/oa returns 400 when label is missing", async () => {

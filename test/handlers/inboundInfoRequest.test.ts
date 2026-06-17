@@ -32,7 +32,7 @@ describe("InboundHandler info-request hook", () => {
     const infoRequest = { onInbound: vi.fn(async () => {}) };
     const h = new InboundHandler(
       m.chatwoot as any, m.mapping as any, m.conversations as any, m.enrich as any,
-      m.appClient as any, m.archive as any, 5_000_000, undefined, consult as any, infoRequest as any,
+      (async () => m.appClient) as any, m.archive as any, 5_000_000, undefined, consult as any, infoRequest as any,
     );
     await h.handle(5, "ident-1", oaMsg() as any);
     expect(infoRequest.onInbound).toHaveBeenCalledWith(5, "oa-user:u1");
@@ -43,7 +43,7 @@ describe("InboundHandler info-request hook", () => {
     const infoRequest = { onInbound: vi.fn(async () => {}) };
     const h = new InboundHandler(
       m.chatwoot as any, m.mapping as any, m.conversations as any, m.enrich as any,
-      m.appClient as any, m.archive as any, 5_000_000, undefined, undefined, infoRequest as any,
+      (async () => m.appClient) as any, m.archive as any, 5_000_000, undefined, undefined, infoRequest as any,
     );
     const msg = { ...oaMsg(), kind: ZaloThreadKind.User, threadId: "84900" };
     await h.handle(5, "ident-1", msg as any);

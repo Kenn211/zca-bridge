@@ -26,7 +26,7 @@ function oaMsg(ts: string) {
 
 // Constructor order: (chatwoot, mapping, conversations, enrich, appClient, archive, maxAttachmentBytes, log, consult, infoRequest, watermark)
 function build(m: ReturnType<typeof mocks>, watermark: any) {
-  return new InboundHandler(m.chatwoot as any, m.mapping as any, m.conversations as any, m.enrich as any, m.appClient as any, m.archive as any, 5_000_000, undefined, undefined, undefined, watermark);
+  return new InboundHandler(m.chatwoot as any, m.mapping as any, m.conversations as any, m.enrich as any, (async () => m.appClient) as any, m.archive as any, 5_000_000, undefined, undefined, undefined, watermark);
 }
 
 describe("InboundHandler watermark hook", () => {
