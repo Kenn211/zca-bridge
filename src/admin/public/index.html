@@ -212,6 +212,14 @@
               <label for="cfg_chatwoot_base_url">Base URL</label><input id="cfg_chatwoot_base_url" placeholder="http://chatwoot-rails:3000" />
               <label for="cfg_chatwoot_account_id">Account ID</label><input id="cfg_chatwoot_account_id" />
               <label for="cfg_chatwoot_api_access_token">API Access Token</label><input id="cfg_chatwoot_api_access_token" type="password" />
+              <div class="input-action"><button class="button button-secondary" type="button" onclick="testChatwootConnection()">Kiểm tra kết nối</button></div>
+              <div id="cwTestMsg" class="message"></div>
+              <details class="muted" style="margin-top:8px">
+                <summary>Cách lấy thông tin Chatwoot</summary>
+                <p><strong>API Access Token:</strong> Chatwoot → ảnh đại diện (góc dưới trái) → Profile Settings → mục "Access Token" → Copy.</p>
+                <p><strong>Account ID:</strong> số trong URL khi bạn đang ở trong account, ví dụ <code>/app/accounts/<b>2</b>/</code> → Account ID = 2.</p>
+                <p>Lưu config sẽ khởi động lại bridge. Bấm "Kiểm tra kết nối" để xác nhận token hợp lệ trước.</p>
+              </details>
             </section>
             <section class="section-block">
               <h3>Zalo OA</h3>
@@ -227,6 +235,18 @@
               <label for="wh_oa">Zalo OA webhook</label>
               <div class="input-action"><input id="wh_oa" readonly /><button class="button button-secondary" type="button" onclick="copyWebhook('wh_oa')">Copy</button></div>
               <div id="whMsg" class="message"></div>
+            </section>
+            <section class="section-block">
+              <h3>Cảnh báo</h3>
+              <label for="cfg_alert_telegram_enabled">Telegram</label>
+              <select id="cfg_alert_telegram_enabled"><option value="false">Tắt</option><option value="true">Bật</option></select>
+              <label for="cfg_alert_telegram_bot_token">Telegram bot token</label><input id="cfg_alert_telegram_bot_token" type="password" />
+              <label for="cfg_alert_telegram_chat_id">Telegram chat ID</label><input id="cfg_alert_telegram_chat_id" />
+              <label for="cfg_alert_webhook_enabled">Webhook</label>
+              <select id="cfg_alert_webhook_enabled"><option value="false">Tắt</option><option value="true">Bật</option></select>
+              <label for="cfg_alert_webhook_url">Webhook URL</label><input id="cfg_alert_webhook_url" placeholder="https://..." />
+              <label for="cfg_alert_reconnecting_threshold_sec">Ngưỡng reconnecting (giây)</label><input id="cfg_alert_reconnecting_threshold_sec" placeholder="300" />
+              <label for="cfg_alert_cooldown_sec">Cooldown (giây)</label><input id="cfg_alert_cooldown_sec" placeholder="600" />
             </section>
           </div>
           <button class="button button-primary" type="button" onclick="saveSettings()">Lưu & áp dụng</button>

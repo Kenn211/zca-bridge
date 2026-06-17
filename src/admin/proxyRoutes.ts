@@ -31,17 +31,18 @@ export function registerProxyRoutes(
   proxies: Pick<ProxyRepo, "create" | "list" | "update" | "delete">,
   accounts: Pick<AccountRepo, "listByProxy" | "setProxy">,
   guard: Pre,
+  requireWrite: Pre = guard,
 ): void {
   app.get("/admin/api/proxies", { preHandler: guard }, async () => ({ proxies: await proxies.list() }));
 
-  app.post("/admin/api/proxies", { preHandler: guard }, async (req, reply) => {
+  app.post("/admin/api/proxies", { preHandler: requireWrite }, async (req, reply) => {
     const parsed = parseInput(req.body);
     if ("error" in parsed) return reply.code(400).send({ ok: false, error: parsed.error });
     const proxy = await proxies.create(parsed);
     return reply.send({ ok: true, proxy });
   });
 
-  app.patch<{ Params: { id: string } }>("/admin/api/proxies/:id", { preHandler: guard }, async (req, reply) => {
+  app.patch<{ Params: { id: string } }>("/admin/api/proxies/:id", { preHandler: requireWrite }, async (req, reply) => {
     const id = parseId(req.params.id);
     if (id === null) return reply.code(400).send({ ok: false });
     const parsed = parseInput(req.body);
@@ -59,7 +60,7 @@ export function registerProxyRoutes(
 
   app.delete<{ Params: { id: string }; Querystring: { confirm?: string } }>(
     "/admin/api/proxies/:id",
-    { preHandler: guard },
+    { preHandler: requireWrite },
     async (req, reply) => {
       const id = parseId(req.params.id);
       if (id === null) return reply.code(400).send({ ok: false });

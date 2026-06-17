@@ -12,6 +12,13 @@ const FIELDS: Array<{ key: string; secret: boolean }> = [
   { key: "zalo_oa_app_secret", secret: true },
   { key: "zalo_oa_secret_key", secret: true },
   { key: "zalo_oa_oauth_redirect", secret: false },
+  { key: "alert_telegram_enabled", secret: false },
+  { key: "alert_telegram_bot_token", secret: true },
+  { key: "alert_telegram_chat_id", secret: false },
+  { key: "alert_webhook_enabled", secret: false },
+  { key: "alert_webhook_url", secret: false },
+  { key: "alert_reconnecting_threshold_sec", secret: false },
+  { key: "alert_cooldown_sec", secret: false },
 ];
 
 export function registerSettingsRoutes(
@@ -19,6 +26,7 @@ export function registerSettingsRoutes(
   settings: Pick<SettingsRepo, "getAll" | "setMany">,
   guard: Pre,
   onApply: () => void,
+  requireWrite: Pre = guard,
 ): void {
   app.get("/admin/api/settings", { preHandler: guard }, async () => {
     const all = await settings.getAll();
@@ -29,7 +37,7 @@ export function registerSettingsRoutes(
     return out;
   });
 
-  app.post<{ Body: Record<string, string> }>("/admin/api/settings", { preHandler: guard }, async (req, reply) => {
+  app.post<{ Body: Record<string, string> }>("/admin/api/settings", { preHandler: requireWrite }, async (req, reply) => {
     const body = req.body ?? {};
     const entries: Array<{ key: string; value: string; isSecret: boolean }> = [];
     for (const f of FIELDS) {

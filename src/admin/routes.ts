@@ -5,22 +5,19 @@ export interface QrLoginService {
   startLogin(accountId: number): Promise<{ qrImageBase64: string }>;
 }
 
-export interface InboxProvisioner {
-  createInboxForAccount(label: string): Promise<{ identifier: string; id: number }>;
-}
-
 export interface AdminRouteOptions {
-  provisioner?: InboxProvisioner;
   refreshInboxIndex?: () => Promise<void>;
   applyProxy?: (accountId: number) => Promise<void>;
+  requireWrite?: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+  listChatwootAccounts?: () => Promise<{ id: number; name: string }[]>;
 }
 
 type AccountCreateBody = {
   label?: string;
-  inboxMode?: "auto" | "existing" | string;
   chatwootInboxIdentifier?: string;
   chatwootInboxId?: number | string | null;
   proxyId?: number | string | null;
+  chatwootAccountId?: number | string | null;
 };
 
 type Pre = (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -46,6 +43,8 @@ export function registerAdminRoutes(
   guard: Pre,
   opts: AdminRouteOptions = {},
 ): void {
+  const write = opts.requireWrite ?? guard;
+
   const refreshInboxIndexBestEffort = async (): Promise<void> => {
     if (!opts.refreshInboxIndex) return;
     try {
@@ -73,63 +72,59 @@ export function registerAdminRoutes(
   const createInput = async (
     body: AccountCreateBody,
     reply: FastifyReply,
-  ): Promise<{ label: string; chatwootInboxIdentifier: string; chatwootInboxId?: number; proxyId?: number | null } | null> => {
+  ): Promise<{ label: string; chatwootInboxIdentifier: string; chatwootInboxId: number; proxyId?: number | null; chatwootAccountId?: number | null } | null> => {
     const label = typeof body?.label === "string" ? body.label.trim() : "";
     if (!label) {
       reply.code(400).send({ ok: false });
       return null;
     }
 
-    if (body?.inboxMode !== undefined && body.inboxMode !== "auto" && body.inboxMode !== "existing") {
-      reply.code(400).send({ ok: false, error: "invalid_inbox_mode" });
-      return null;
-    }
-
     const proxyId = parseProxyId(body?.proxyId);
     if (proxyId === null && body?.proxyId !== null && body?.proxyId !== "" && body?.proxyId !== undefined) {
-      // a non-empty value that failed to parse to a positive int
       reply.code(400).send({ ok: false, error: "invalid_proxy_id" });
       return null;
     }
 
-    const explicitExisting = body?.inboxMode === "existing";
-    const legacyExisting = !body?.inboxMode && typeof body?.chatwootInboxIdentifier === "string" && body.chatwootInboxIdentifier.trim() !== "";
-    if (explicitExisting || legacyExisting) {
-      const ident = typeof body?.chatwootInboxIdentifier === "string" ? body.chatwootInboxIdentifier.trim() : "";
-      if (!ident) {
-        reply.code(400).send({ ok: false, error: "chatwoot_inbox_identifier_required" });
+    let chatwootAccountId: number | undefined;
+    if (body?.chatwootAccountId !== undefined && body?.chatwootAccountId !== null && body?.chatwootAccountId !== "") {
+      const parsedAcc = parsePositiveSafeInt(body.chatwootAccountId);
+      if (parsedAcc === null) {
+        reply.code(400).send({ ok: false, error: "invalid_chatwoot_account_id" });
         return null;
       }
-      if (body.chatwootInboxId === undefined || body.chatwootInboxId === null) {
-        reply.code(400).send({ ok: false, error: "chatwoot_inbox_id_required" });
-        return null;
-      }
-      const inboxId = parseInboxId(body.chatwootInboxId, reply);
-      if (inboxId === null) return null;
-      return { label, chatwootInboxIdentifier: ident, chatwootInboxId: inboxId, proxyId: proxyId ?? null };
+      chatwootAccountId = parsedAcc;
     }
 
-    if (!opts.provisioner) {
-      reply.code(400).send({ ok: false, error: "chatwoot_config_missing" });
+    const ident = typeof body?.chatwootInboxIdentifier === "string" ? body.chatwootInboxIdentifier.trim() : "";
+    if (!ident) {
+      reply.code(400).send({ ok: false, error: "chatwoot_inbox_identifier_required" });
       return null;
     }
-
-    try {
-      const inbox = await opts.provisioner.createInboxForAccount(label);
-      return { label, chatwootInboxIdentifier: inbox.identifier, chatwootInboxId: inbox.id, proxyId: proxyId ?? null };
-    } catch (err: any) {
-      const code = typeof err?.code === "string" ? err.code : "chatwoot_inbox_create_failed";
-      const status = code === "chatwoot_config_missing" ? 400 : 502;
-      reply.code(status).send({ ok: false, error: code });
+    if (body.chatwootInboxId === undefined || body.chatwootInboxId === null) {
+      reply.code(400).send({ ok: false, error: "chatwoot_inbox_id_required" });
       return null;
     }
+    const inboxId = parseInboxId(body.chatwootInboxId, reply);
+    if (inboxId === null) return null;
+    return { label, chatwootInboxIdentifier: ident, chatwootInboxId: inboxId, proxyId: proxyId ?? null, chatwootAccountId: chatwootAccountId ?? null };
   };
 
   app.get("/admin/api/accounts", { preHandler: guard }, async () => accounts.listAll());
 
+  app.get("/admin/api/chatwoot/accounts", { preHandler: guard }, async (_req, reply) => {
+    if (!opts.listChatwootAccounts) {
+      return reply.code(502).send({ ok: false, error: "chatwoot_accounts_list_failed" });
+    }
+    try {
+      return await opts.listChatwootAccounts();
+    } catch {
+      return reply.code(502).send({ ok: false, error: "chatwoot_accounts_list_failed" });
+    }
+  });
+
   app.post<{ Body: AccountCreateBody }>(
     "/admin/api/accounts",
-    { preHandler: guard },
+    { preHandler: write },
     async (req, reply) => {
       const input = await createInput(req.body, reply);
       if (!input) return reply;
@@ -141,7 +136,7 @@ export function registerAdminRoutes(
 
   app.post<{ Body: AccountCreateBody }>(
     "/admin/api/accounts/oa",
-    { preHandler: guard },
+    { preHandler: write },
     async (req, reply) => {
       const input = await createInput(req.body, reply);
       if (!input) return reply;
@@ -151,13 +146,13 @@ export function registerAdminRoutes(
     },
   );
 
-  app.patch<{ Params: { id: string }; Body: { label?: string; chatwootInboxIdentifier?: string; chatwootInboxId?: number | string | null; proxyId?: number | string | null } }>(
+  app.patch<{ Params: { id: string }; Body: { label?: string; chatwootInboxIdentifier?: string; chatwootInboxId?: number | string | null; proxyId?: number | string | null; chatwootAccountId?: number | string | null } }>(
     "/admin/api/accounts/:id",
-    { preHandler: guard },
+    { preHandler: write },
     async (req, reply) => {
       const id = parsePositiveSafeInt(req.params.id);
       if (id === null) return reply.code(400).send({ ok: false });
-      const patch: { label?: string; chatwootInboxIdentifier?: string; chatwootInboxId?: number } = {};
+      const patch: { label?: string; chatwootInboxIdentifier?: string; chatwootInboxId?: number; chatwootAccountId?: number } = {};
       if (typeof req.body?.label === "string") patch.label = req.body.label;
       if (typeof req.body?.chatwootInboxIdentifier === "string") {
         if (req.body.chatwootInboxIdentifier.trim() === "") return reply.code(400).send({ ok: false });
@@ -173,6 +168,11 @@ export function registerAdminRoutes(
         const inboxId = parseInboxId(req.body.chatwootInboxId, reply);
         if (inboxId === null) return reply;
         patch.chatwootInboxId = inboxId;
+      }
+      if (req.body?.chatwootAccountId !== undefined && req.body?.chatwootAccountId !== null && req.body?.chatwootAccountId !== "") {
+        const parsedAcc = parsePositiveSafeInt(req.body.chatwootAccountId);
+        if (parsedAcc === null) return reply.code(400).send({ ok: false, error: "invalid_chatwoot_account_id" });
+        patch.chatwootAccountId = parsedAcc;
       }
       const proxyId = parseProxyId(req.body?.proxyId);
       if (proxyId === null && req.body?.proxyId !== null && req.body?.proxyId !== "" && req.body?.proxyId !== undefined) {
@@ -192,7 +192,7 @@ export function registerAdminRoutes(
 
   app.post<{ Params: { id: string } }>(
     "/admin/api/accounts/:id/login",
-    { preHandler: guard },
+    { preHandler: write },
     async (req, reply) => {
       const id = parsePositiveSafeInt(req.params.id);
       if (id === null) return reply.code(400).send({ ok: false });
@@ -202,7 +202,7 @@ export function registerAdminRoutes(
 
   app.post<{ Params: { id: string } }>(
     "/admin/api/accounts/:id/apply-proxy",
-    { preHandler: guard },
+    { preHandler: write },
     async (req, reply) => {
       const id = parsePositiveSafeInt(req.params.id);
       if (id === null) return reply.code(400).send({ ok: false });
@@ -219,10 +219,11 @@ export function registerAccountDeleteRoute(
   supervisor: { remove: (accountId: number) => Promise<void> },
   refreshIndex: () => Promise<void>,
   guard: Pre,
+  requireWrite: Pre = guard,
 ): void {
   app.delete<{ Params: { id: string } }>(
     "/admin/api/accounts/:id",
-    { preHandler: guard },
+    { preHandler: requireWrite },
     async (req, reply) => {
       const id = parsePositiveSafeInt(req.params.id);
       if (id === null) return reply.code(400).send({ ok: false });

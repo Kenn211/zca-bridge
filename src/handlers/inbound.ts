@@ -1,15 +1,16 @@
 import { request } from "undici";
 import { ChatwootClient, Attachment } from "../chatwoot/client.js";
-import { ChatwootAppClient } from "../chatwoot/appClient.js";
+import type { AppClientFor } from "../chatwoot/appClientFactory.js";
 import { MappingRepo } from "../store/mappingRepo.js";
 import { ConversationRepo } from "../store/conversationRepo.js";
-import { IncomingMessage, ZaloThreadKind, toRoutingKindOf } from "../zalo/types.js";
+import { IncomingMessage, ZaloThreadKind, GroupProfile, toRoutingKindOf } from "../zalo/types.js";
 import { MediaKind, MEDIA_LABEL } from "../zalo/classify.js";
 import { MediaArchive } from "../media/archive.js";
 import { encodeSourceId } from "../routing/sourceId.js";
 import { EventLog, NOOP_LOG } from "../logging/eventLog.js";
 
 type EnrichFn = (accountId: number, sourceId: string, identifier: string, senderUid: string) => Promise<void>;
+type GroupProfileResolver = (accountId: number, groupId: string) => Promise<GroupProfile | null>;
 
 interface ConsultHook { onInbound(accountId: number, sourceId: string): Promise<void>; }
 interface InfoRequestHook { onInbound(accountId: number, sourceId: string): Promise<void>; }
@@ -17,6 +18,9 @@ interface WatermarkHook { onRelayed(accountId: number, timeMs: number): void; }
 
 // Prefix on messages the operator sent directly from the native Zalo app.
 const SELF_PREFIX = "📱 từ app Zalo";
+
+// Hiển thị khi chưa lấy được tên nhóm thật (lookup lỗi) — vẫn tốt hơn tên một thành viên.
+const GROUP_FALLBACK_NAME = "Nhóm Zalo";
 
 const MEDIA_ICON: Record<MediaKind, string> = { image: "🖼️", audio: "🎙️", video: "🎥", file: "📎" };
 
@@ -78,6 +82,10 @@ function isConversationGone(err: unknown): boolean {
   return /failed[^0-9]*404/.test(m);
 }
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export async function downloadMedia(href: string): Promise<{ bytes: Buffer; contentType: string }> {
   // Zalo CDN video/file downloads can be slow; allow up to 60s for the body.
   const opts = { method: "GET" as const, headersTimeout: 10_000, bodyTimeout: 60_000 };
@@ -108,19 +116,21 @@ export async function downloadMedia(href: string): Promise<{ bytes: Buffer; cont
 export class InboundHandler {
   private locks = new Map<string, Promise<unknown>>(); // per source_id serialization
   private enrichedOa = new Set<string>(); // OA contacts already backfilled this process run
+  private reenrichedGroups = new Set<string>(); // group contacts already re-enriched this process run
 
   constructor(
     private chatwoot: ChatwootClient,
     private mapping: MappingRepo,
     private conversations: ConversationRepo,
     private enrich: EnrichFn,
-    private appClient: ChatwootAppClient,
+    private appClientFor: AppClientFor,
     private archive: MediaArchive,
     private maxAttachmentBytes: number,
     private log: EventLog = NOOP_LOG,
     private consult?: ConsultHook,
     private infoRequest?: InfoRequestHook,
     private watermark?: WatermarkHook,
+    private groupProfile?: GroupProfileResolver,
   ) {}
 
   async handle(accountId: number, identifier: string, msg: IncomingMessage): Promise<void> {
@@ -142,23 +152,36 @@ export class InboundHandler {
     // Native reply: the public inbox API cannot set in_reply_to, so a resolvable quote is
     // routed through the Application API as an incoming message instead.
     const inReplyTo = await this.resolveQuote(accountId, msg);
-    const post = (cid: number) =>
-      inReplyTo != null && this.appClient.enabled
-        ? this.appClient.createIncomingMessage(cid, built.content, { inReplyTo, attachments: built.attachments })
-        : this.chatwoot.createMessage(identifier, sourceId, cid, built);
+    const appClient = await this.appClientFor(accountId);
+
+    // Public inbox path, with a one-shot recreate when the Chatwoot conversation was deleted.
+    const postPublicWithRecreate = async (cid: number): Promise<{ id: number }> => {
+      try {
+        return await this.chatwoot.createMessage(identifier, sourceId, cid, built);
+      } catch (err) {
+        if (!isConversationGone(err)) throw err;
+        this.log.warn({ event: "conversation_recreated", accountId, sourceId, staleId: cid, err: errorMessage(err) }, "chatwoot conversation gone; recreating");
+        await this.conversations.clear(accountId, sourceId);
+        const conv = await this.chatwoot.createConversation(identifier, sourceId);
+        await this.conversations.saveChatwootId(accountId, sourceId, conv.id);
+        return await this.chatwoot.createMessage(identifier, sourceId, conv.id, built);
+      }
+    };
+
     let created: { id: number };
-    try {
-      created = await post(conversationId);
-    } catch (err) {
-      // The Chatwoot conversation was deleted out from under us (stale mapping).
-      // Drop the mapping, create a fresh conversation, and retry once.
-      if (!isConversationGone(err)) throw err;
-      this.log.warn({ event: "conversation_recreated", accountId, sourceId, staleId: conversationId }, "chatwoot conversation gone; recreating");
-      await this.conversations.clear(accountId, sourceId);
-      const conv = await this.chatwoot.createConversation(identifier, sourceId);
-      await this.conversations.saveChatwootId(accountId, sourceId, conv.id);
-      conversationId = conv.id;
-      created = await post(conversationId);
+    if (inReplyTo != null && appClient.enabled) {
+      try {
+        created = await appClient.createIncomingMessage(conversationId, built.content, { inReplyTo, attachments: built.attachments });
+      } catch (err) {
+        // An Application API failure here is usually an account-scope 404; recreating the public
+        // conversation cannot fix that. Deliver via the public inbox path instead so the message
+        // still lands (only native-reply threading is lost), without entering a recreate loop.
+        // (The public path may still recreate once if that conversation is genuinely gone.)
+        this.log.warn({ event: "app_api_reply_fallback", accountId, sourceId, err: errorMessage(err) }, "application API reply failed; relaying without reply threading");
+        created = await postPublicWithRecreate(conversationId);
+      }
+    } else {
+      created = await postPublicWithRecreate(conversationId);
     }
     await this.mapping.recordIfNew({
       zaloAccountId: accountId, zaloMsgId: msg.msgId, zaloThreadId: msg.threadId,
@@ -180,7 +203,8 @@ export class InboundHandler {
     const built = await this.buildOutput(accountId, msg);
     const content = built.content ? `${SELF_PREFIX}\n${built.content}` : SELF_PREFIX;
     const inReplyTo = await this.resolveQuote(accountId, msg);
-    const created = await this.appClient.createOutgoingMessage(conversationId, content, built.attachments, { inReplyTo });
+    const appClient = await this.appClientFor(accountId);
+    const created = await appClient.createOutgoingMessage(conversationId, content, built.attachments, { inReplyTo });
     await this.mapping.recordIfNew({
       zaloAccountId: accountId, zaloMsgId: msg.msgId, zaloThreadId: msg.threadId,
       direction: "out", chatwootMessageId: created.id, quoteSrc: msg.quoteSrc,
@@ -194,12 +218,10 @@ export class InboundHandler {
     return quoted?.chatwootMessageId ?? undefined;
   }
 
-  // Build the Chatwoot message body from a classified Zalo message. For media: download
-  // once, archive (source of truth), then attach if within the size cap or post a text +
-  // tokenized link when too large. Non-media types render as labelled fallback text.
   private async buildOutput(accountId: number, msg: IncomingMessage): Promise<{ content: string; attachments?: Attachment[] }> {
     const c = msg.classified;
-    if (c.kind !== "media") return { content: c.text };
+    const prefix = this.groupSenderPrefix(msg);
+    if (c.kind !== "media") return { content: prefix + c.text };
 
     const { bytes, contentType: downloaded } = await downloadMedia(c.href);
     const contentType = contentTypeFor(c.mediaType, c.filename, downloaded);
@@ -208,11 +230,17 @@ export class InboundHandler {
     await this.archive.put(key, bytes, contentType);
 
     if (bytes.length <= this.maxAttachmentBytes) {
-      return { content: c.caption, attachments: [{ filename, content: bytes, contentType }] };
+      return { content: prefix + c.caption, attachments: [{ filename, content: bytes, contentType }] };
     }
     const mb = Math.ceil(bytes.length / (1024 * 1024));
     const url = this.archive.urlFor(key);
-    return { content: `${MEDIA_ICON[c.mediaType]} ${MEDIA_LABEL[c.mediaType]} (${mb}MB) — quá lớn để hiển thị. Tải tại: ${url}` };
+    return { content: prefix + `${MEDIA_ICON[c.mediaType]} ${MEDIA_LABEL[c.mediaType]} (${mb}MB) — quá lớn để hiển thị. Tải tại: ${url}` };
+  }
+
+  // In a group, every message is relayed under the single group contact, so prepend the sender's
+  // name so agents can tell who said what. Skip self messages (already labelled "📱 từ app Zalo").
+  private groupSenderPrefix(msg: IncomingMessage): string {
+    return msg.kind === ZaloThreadKind.Group && !msg.isSelf && msg.senderName ? `**${msg.senderName}:**\n` : "";
   }
 
   // Resolve (creating if needed) the contact + persistent conversation for a thread.
@@ -220,13 +248,17 @@ export class InboundHandler {
     const existing = await this.chatwoot.getContact(identifier, sourceId);
     const enrichKey = `${identifier}:${sourceId}`;
     if (!existing) {
-      await this.chatwoot.createContact(identifier, { sourceId, name: msg.senderName || msg.senderUid });
-      this.enrichedOa.add(enrichKey);
-      this.enrich(accountId, sourceId, identifier, msg.senderUid).catch(() => {});
+      await this.createContactForThread(accountId, identifier, sourceId, msg, enrichKey);
     } else if (msg.kind === ZaloThreadKind.OaUser && !this.enrichedOa.has(enrichKey)) {
       // OA contacts can't be named at create-time (no zca session); backfill name/avatar
       // once per process run for contacts that may still show the raw user id.
       this.enrichedOa.add(enrichKey);
+      this.enrich(accountId, sourceId, identifier, msg.senderUid).catch(() => {});
+    } else if (msg.kind === ZaloThreadKind.Group && !this.reenrichedGroups.has(enrichKey)) {
+      // An existing group contact may still carry a member's name from before this fix; correct
+      // it to the real group name/avatar once per process run. enrich() resolves groups from the
+      // sourceId (group:<threadId>), so senderUid is passed only for signature parity.
+      this.reenrichedGroups.add(enrichKey);
       this.enrich(accountId, sourceId, identifier, msg.senderUid).catch(() => {});
     }
     let conversationId = await this.conversations.getChatwootId(accountId, sourceId);
@@ -236,5 +268,34 @@ export class InboundHandler {
       conversationId = (await this.conversations.getChatwootId(accountId, sourceId)) ?? conv.id;
     }
     return conversationId;
+  }
+
+  // Create the Chatwoot contact for a new thread. Groups are named (and avatar'd) from the group
+  // info at create-time; user/OA threads keep the sender name + async enrich (as before).
+  private async createContactForThread(accountId: number, identifier: string, sourceId: string, msg: IncomingMessage, enrichKey: string): Promise<void> {
+    if (msg.kind === ZaloThreadKind.Group) {
+      const group = await this.resolveGroupProfile(accountId, msg.threadId);
+      await this.chatwoot.createContact(identifier, { sourceId, name: group?.name || GROUP_FALLBACK_NAME, avatarUrl: group?.avatar });
+      // Got full info now → no immediate re-enrich. If the lookup failed, leave it unmarked so the
+      // next group message re-enriches and replaces the placeholder.
+      if (group) this.reenrichedGroups.add(enrichKey);
+      return;
+    }
+    // The contact represents the thread party (= msg.threadId), never the message sender — which
+    // for a self/operator-initiated message is the operator. Take the sender name as the instant
+    // name only when the sender IS the thread party (an incoming, non-self message); otherwise use
+    // threadId as a placeholder until enrich() resolves the party's real name.
+    const instantName = (!msg.isSelf && msg.senderName) || msg.threadId;
+    await this.chatwoot.createContact(identifier, { sourceId, name: instantName });
+    this.enrichedOa.add(enrichKey);
+    this.enrich(accountId, sourceId, identifier, msg.threadId).catch(() => {});
+  }
+
+  private async resolveGroupProfile(accountId: number, groupId: string): Promise<GroupProfile | null> {
+    try {
+      return (await this.groupProfile?.(accountId, groupId)) ?? null;
+    } catch {
+      return null;
+    }
   }
 }

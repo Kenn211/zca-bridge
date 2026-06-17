@@ -109,10 +109,10 @@ async function copyWebhook(id) {
 async function loadSettings() {
   const { body } = await api("/admin/api/settings");
   if (!body) return;
-  for (const key of ["chatwoot_base_url", "chatwoot_account_id", "zalo_oa_app_id", "zalo_oa_oauth_redirect"]) {
+  for (const key of ["chatwoot_base_url", "chatwoot_account_id", "zalo_oa_app_id", "zalo_oa_oauth_redirect", "alert_telegram_enabled", "alert_telegram_chat_id", "alert_webhook_enabled", "alert_webhook_url", "alert_reconnecting_threshold_sec", "alert_cooldown_sec"]) {
     $("cfg_" + key).value = typeof body[key] === "string" ? body[key] : "";
   }
-  for (const key of ["chatwoot_api_access_token", "zalo_oa_app_secret", "zalo_oa_secret_key"]) {
+  for (const key of ["chatwoot_api_access_token", "zalo_oa_app_secret", "zalo_oa_secret_key", "alert_telegram_bot_token"]) {
     const set = body[key] && body[key].set;
     $("cfg_" + key).placeholder = set ? "•••••• (đang đặt — để trống nếu giữ nguyên)" : "(chưa đặt)";
   }
@@ -121,7 +121,7 @@ async function loadSettings() {
 
 async function saveSettings() {
   const payload = {};
-  for (const key of ["chatwoot_base_url", "chatwoot_account_id", "chatwoot_api_access_token", "zalo_oa_app_id", "zalo_oa_app_secret", "zalo_oa_secret_key", "zalo_oa_oauth_redirect"]) {
+  for (const key of ["chatwoot_base_url", "chatwoot_account_id", "chatwoot_api_access_token", "zalo_oa_app_id", "zalo_oa_app_secret", "zalo_oa_secret_key", "zalo_oa_oauth_redirect", "alert_telegram_enabled", "alert_telegram_bot_token", "alert_telegram_chat_id", "alert_webhook_enabled", "alert_webhook_url", "alert_reconnecting_threshold_sec", "alert_cooldown_sec"]) {
     payload[key] = $("cfg_" + key).value;
   }
   const { status } = await api("/admin/api/settings", { method: "POST", body: JSON.stringify(payload) });
@@ -130,9 +130,20 @@ async function saveSettings() {
   pollHealth();
 }
 
-function toggleExistingInbox() {
-  $("existingInboxFields").classList.toggle("hidden", !$("useExistingInbox").checked);
+async function testChatwootConnection() {
+  const m = $("cwTestMsg");
+  if (m) { m.textContent = "Đang kiểm tra..."; m.className = "message"; }
+  const { status, body } = await api("/admin/api/chatwoot/accounts");
+  if (!m) return;
+  if (status === 200 && Array.isArray(body)) {
+    m.textContent = "Kết nối OK — token hợp lệ.";
+    m.className = "message ok";
+  } else {
+    m.textContent = "Không kết nối được. Kiểm tra Base URL + API token. Lưu config rồi thử lại.";
+    m.className = "message err";
+  }
 }
+window.testChatwootConnection = testChatwootConnection;
 
 function openDrawer(title, bodyHtml, actionsHtml = "") {
   drawerToken += 1;
@@ -185,15 +196,19 @@ function openAddAccountPanel() {
     <input id="newLabel" placeholder="Ví dụ: Sales OA" />
     <label for="newProxy">Proxy</label>
     <select id="newProxy">${proxySelectOptions()}</select>
-    <label class="check-row">
-      <input id="useExistingInbox" type="checkbox" onchange="toggleExistingInbox()" />
-      <span>Nâng cao: dùng inbox có sẵn</span>
-    </label>
-    <div id="existingInboxFields" class="hidden">
+    <div id="addInboxFields">
+      <label for="newChatwootAccountId">Chatwoot Account ID</label>
+      <input id="newChatwootAccountId" type="number" inputmode="numeric" min="1" step="1" placeholder="vd: 1 — số trong URL /app/accounts/…/" />
       <label for="newInboxIdent">Inbox identifier</label>
-      <input id="newInboxIdent" placeholder="identifier từ Chatwoot" />
+      <input id="newInboxIdent" placeholder="inbox_identifier từ Chatwoot" />
       <label for="newInboxId">Inbox ID</label>
-      <input id="newInboxId" placeholder="Số nguyên dương" />
+      <input id="newInboxId" placeholder="Số nguyên dương (từ URL inbox)" />
+      <details class="muted" style="margin-top:8px">
+        <summary>Cách tạo inbox trong Chatwoot</summary>
+        <p>1. Vào đúng Chatwoot account muốn nhận tin → Settings → Inboxes → Add Inbox → chọn <strong>API</strong>.</p>
+        <p>2. Ở ô <strong>Webhook URL</strong> dán giá trị "Chatwoot inbox webhook" (tab Cấu hình). Bắt buộc — thiếu thì agent trả lời sẽ không về được Zalo.</p>
+        <p>3. Tạo xong, mở inbox → lấy <code>inbox_identifier</code> và Inbox ID (số trong URL) điền vào đây.</p>
+      </details>
     </div>
     <div id="addMsg" class="message"></div>
   `, `<button class="button button-secondary" type="button" onclick="closeDrawer()">Hủy</button>
@@ -300,7 +315,7 @@ function renderAccounts(accounts) {
   }
   const rows = accounts.map((a) => accountRow(a)).join("");
   box.innerHTML = `<table class="account-table">
-    <thead><tr><th>Tài khoản</th><th>Trạng thái</th><th>Inbox</th><th>OA</th><th>Thao tác</th></tr></thead>
+    <thead><tr><th>Tài khoản</th><th>Trạng thái</th><th>Inbox</th><th>OA</th><th>Chatwoot acct</th><th>Thao tác</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -316,11 +331,13 @@ function accountRow(a) {
   const proxyBadge = (a.type !== "oa" && a.proxyPending)
     ? ' <span class="badge warn">Cần áp dụng proxy</span>'
     : "";
+  const cwAcct = a.chatwootAccountId ?? "(mặc định)";
   return `<tr>
     <td><strong>#${escapeHtml(a.id)} ${escapeHtml(a.label)}</strong><div class="muted">${type}</div></td>
     <td>${statusBadge(a.status)}${proxyBadge}</td>
     <td>${inbox}</td>
     <td>${oa}</td>
+    <td>${escapeHtml(cwAcct)}</td>
     <td><div class="row-actions">${accountActions(a)}</div></td>
   </tr>`;
 }
@@ -374,13 +391,15 @@ function openEditAccountPanel(id) {
   openDrawer(`Sửa #${a.id}`, `
     <label for="e_label">Nhãn</label>
     <input id="e_label" value="${escapeHtml(a.label)}" />
+    <label for="e_chatwootAccountId">Chatwoot Account ID</label>
+    <input id="e_chatwootAccountId" type="number" inputmode="numeric" min="1" step="1" value="${a.chatwootAccountId == null ? "" : escapeHtml(String(a.chatwootAccountId))}" />
     <label for="e_ident">Inbox identifier</label>
     <input id="e_ident" value="${escapeHtml(a.chatwootInboxIdentifier || "")}" />
     <label for="e_iid">Inbox ID</label>
     <input id="e_iid" value="${a.chatwootInboxId == null ? "" : escapeHtml(String(a.chatwootInboxId))}" />
     <label for="editProxy">Proxy</label>
     <select id="editProxy">${editProxySelectOptions(a.proxyId)}</select>
-    <p class="muted">Đổi inbox chỉ ảnh hưởng tin mới. Nếu có identifier thì Inbox ID là bắt buộc.</p>
+    <p class="muted">Đổi inbox chỉ ảnh hưởng tin mới. Để chuyển sang Chatwoot account khác: tạo inbox API ở account đó (đặt webhook URL), rồi dán identifier + Inbox ID mới vào đây và chọn account đích. Nếu có identifier thì Inbox ID là bắt buộc.</p>
     <div id="e_msg" class="message"></div>
   `, `<button class="button button-secondary" type="button" onclick="closeDrawer()">Hủy</button>
       <button id="saveAccountBtn" class="button button-primary" type="button" onclick="saveAccount(${a.id})">Lưu</button>`);
@@ -453,6 +472,10 @@ window.saveAccount = async (id) => {
   const parsedIid = parseOptionalPositiveInt(iid);
   if (parsedIid === undefined) { const m = $("e_msg"); m.textContent = "Inbox ID phải là số nguyên dương."; m.className = "message err"; return; }
   if (parsedIid !== null) payload.chatwootInboxId = parsedIid;
+  const eAcctEl = $("e_chatwootAccountId");
+  const eAcct = parseOptionalPositiveInt(eAcctEl ? eAcctEl.value : "");
+  if (eAcct === undefined) { const m = $("e_msg"); m.textContent = "Chatwoot Account ID không hợp lệ."; m.className = "message err"; return; }
+  if (eAcct !== null) payload.chatwootAccountId = eAcct;
   setBusy("#saveAccountBtn", true);
   let result;
   try {
@@ -479,6 +502,7 @@ window.saveAccount = async (id) => {
     const errMap = {
       invalid_chatwoot_inbox_id: "Inbox ID phải là số nguyên dương.",
       chatwoot_inbox_id_required: "Inbox ID phải là số nguyên dương.",
+      invalid_chatwoot_account_id: "Chatwoot Account ID không hợp lệ.",
     };
     m.textContent = (status === 400 && body && errMap[body.error]) || (status === 400 ? "Inbox identifier không hợp lệ." : "Lưu thất bại.");
     m.className = "message err";
@@ -525,21 +549,20 @@ async function createAccount() {
   const token = drawerToken;
   const type = $("newType").value;
   const label = $("newLabel").value.trim();
-  const useExisting = $("useExistingInbox").checked;
   const chatwootInboxIdentifier = $("newInboxIdent").value.trim();
   const iid = $("newInboxId").value.trim();
   const proxyVal = $("newProxy") ? $("newProxy").value : "";
   if (!label) { msg("addMsg", "Cần nhãn.", false); return; }
-  const payload = { label, inboxMode: useExisting ? "existing" : "auto" };
+  if (!chatwootInboxIdentifier) { msg("addMsg", "Cần inbox identifier (tạo inbox API trong Chatwoot trước).", false); return; }
+  if (!iid) { msg("addMsg", "Cần Inbox ID.", false); return; }
+  const parsedIid = parseOptionalPositiveInt(iid);
+  if (parsedIid === undefined || parsedIid === null) { msg("addMsg", "Inbox ID phải là số nguyên dương.", false); return; }
+  const payload = { label, chatwootInboxIdentifier, chatwootInboxId: parsedIid };
   if (proxyVal) payload.proxyId = Number(proxyVal);
-  if (useExisting) {
-    if (!chatwootInboxIdentifier) { msg("addMsg", "Cần inbox identifier khi dùng inbox có sẵn.", false); return; }
-    if (!iid) { msg("addMsg", "Cần Inbox ID khi dùng inbox có sẵn.", false); return; }
-    payload.chatwootInboxIdentifier = chatwootInboxIdentifier;
-    const parsedIid = parseOptionalPositiveInt(iid);
-    if (parsedIid === undefined) { msg("addMsg", "Inbox ID phải là số nguyên dương.", false); return; }
-    if (parsedIid !== null) payload.chatwootInboxId = parsedIid;
-  }
+  const cwAcctEl = $("newChatwootAccountId");
+  const cwAcct = parseOptionalPositiveInt(cwAcctEl ? cwAcctEl.value : "");
+  if (cwAcct === undefined) { msg("addMsg", "Chatwoot Account ID không hợp lệ.", false); return; }
+  if (cwAcct !== null) payload.chatwootAccountId = cwAcct;
   const endpoint = type === "oa" ? "/admin/api/accounts/oa" : "/admin/api/accounts";
   setBusy("#saveNewAccountBtn", true);
   let result;
@@ -555,21 +578,15 @@ async function createAccount() {
   const { status, body } = result;
   if (status === 200) {
     if (isActiveDrawer(token)) closeDrawer();
-    msg("accountMsg", useExisting ? "Đã thêm tài khoản." : "Đã tạo inbox Chatwoot và thêm tài khoản.", true);
+    msg("accountMsg", "Đã thêm tài khoản.", true);
     loadAccounts();
   } else {
     const errMap = {
-      chatwoot_config_missing: "Thiếu cấu hình Chatwoot URL / Account ID / token.",
-      chatwoot_auth_failed: "Chatwoot token sai hoặc không đủ quyền admin.",
-      chatwoot_inbox_create_failed: "Không tạo được inbox Chatwoot.",
-      chatwoot_inbox_invalid_response: "Chatwoot trả về inbox thiếu id hoặc identifier.",
-      chatwoot_agents_list_failed: "Không lấy được danh sách agents từ Chatwoot.",
-      chatwoot_no_assignable_users: "Chatwoot account chưa có agent để gán vào inbox.",
-      chatwoot_inbox_members_failed: "Không gán được agents vào inbox Chatwoot.",
-      chatwoot_inbox_identifier_required: "Cần inbox identifier khi dùng inbox có sẵn.",
-      chatwoot_inbox_id_required: "Cần Inbox ID khi dùng inbox có sẵn.",
-      invalid_inbox_mode: "Chế độ inbox không hợp lệ.",
-      invalid_chatwoot_inbox_id: "Inbox ID Chatwoot không hợp lệ.",
+      chatwoot_inbox_identifier_required: "Cần inbox identifier.",
+      chatwoot_inbox_id_required: "Cần Inbox ID hợp lệ.",
+      invalid_chatwoot_inbox_id: "Inbox ID phải là số nguyên dương.",
+      invalid_chatwoot_account_id: "Chatwoot Account ID không hợp lệ.",
+      invalid_proxy_id: "Proxy không hợp lệ.",
     };
     if (isActiveDrawer(token) && $("addMsg")) {
       setBusy("#saveNewAccountBtn", false);

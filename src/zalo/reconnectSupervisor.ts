@@ -106,22 +106,28 @@ export class ReconnectSupervisor {
       adapter.onClosed((code, reason) => this.onClosed(accountId, code, reason));
       st.adapter = adapter;
       st.attempt = 0;
-      await this.deps.setStatus(accountId, "connected");
+      await this.transition(accountId, "connected");
       if (!isCurrent()) return; // a close interleaved during setStatus; onClosed already handled it
       await this.persistCookie(accountId, adapter, creds);
     } catch (err) {
       st.adapter = undefined;
       if (this.deps.isAuthError(err)) {
         this.deps.log.warn({ event: "zalo_auth_failed", accountId, err }, "zalo re-login auth failure; marking expired");
-        await this.deps.setStatus(accountId, "expired");
+        await this.transition(accountId, "expired");
         return;
       }
       this.deps.log.warn({ event: "zalo_connect_failed", accountId, err }, "zalo connect failed; will retry");
-      await this.deps.setStatus(accountId, "reconnecting");
+      await this.transition(accountId, "reconnecting");
       this.scheduleReconnect(accountId);
     } finally {
       st.connecting = false;
     }
+  }
+
+  /** Single choke point for status changes: emit an account_status event, then persist the status. */
+  private async transition(accountId: number, status: "connected" | "reconnecting" | "expired"): Promise<void> {
+    this.deps.log.info({ event: "account_status", accountId, status }, "account status changed");
+    await this.deps.setStatus(accountId, status);
   }
 
   private async persistCookie(accountId: number, adapter: SupervisedAdapter, creds: ZaloCredentials): Promise<void> {
@@ -151,7 +157,7 @@ export class ReconnectSupervisor {
     if (code === MANUAL_CLOSE) return; // we closed it on purpose
     this.deps.log.warn({ event: "zalo_session_closed", accountId, code, reason }, "zalo session closed; scheduling reconnect");
     void this.deps.unregister(accountId).catch(() => {});
-    void this.deps.setStatus(accountId, "reconnecting").catch(() => {});
+    void this.transition(accountId, "reconnecting").catch(() => {});
     this.scheduleReconnect(accountId);
   }
 

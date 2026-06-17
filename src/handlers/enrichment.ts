@@ -3,6 +3,7 @@ import { ChatwootClient } from "../chatwoot/client.js";
 import { EventLog, NOOP_LOG } from "../logging/eventLog.js";
 import { ContactInfo } from "../zalo-oa/sharedInfo.js";
 import { applyContactInfo } from "./contactInfoSink.js";
+import { decodeSourceId, ThreadKind } from "../routing/sourceId.js";
 
 export interface ContactProfile { displayName: string; avatar?: string; sharedInfo?: ContactInfo; }
 
@@ -21,6 +22,17 @@ export function makeEnricher(
     identifier: string,
     senderUid: string,
   ): Promise<void> {
+    const { kind, threadId } = decodeSourceId(sourceId);
+    if (kind === ThreadKind.Group) {
+      try {
+        const group = await sessions.getGroupInfo(accountId, threadId);
+        await chatwoot.updateContact(identifier, sourceId, { name: group.name, avatarUrl: group.avatar });
+        log.info({ event: "contact_enriched", accountId, sourceId, source: "zca-group" }, "group contact enriched");
+      } catch {
+        // No zca session or the group lookup failed — leave the current name in place.
+      }
+      return;
+    }
     try {
       const profile = await sessions.getUserInfo(accountId, senderUid);
       await chatwoot.updateContact(identifier, sourceId, { name: profile.displayName, avatarUrl: profile.avatar });

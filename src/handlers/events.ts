@@ -1,4 +1,4 @@
-import { ChatwootAppClient } from "../chatwoot/appClient.js";
+import type { AppClientFor } from "../chatwoot/appClientFactory.js";
 import { ConversationRepo } from "../store/conversationRepo.js";
 import { MappingRepo } from "../store/mappingRepo.js";
 import { ReactionEvent, UndoEvent, ZaloThreadKind } from "../zalo/types.js";
@@ -15,7 +15,7 @@ export class ReactionHandler {
   constructor(
     private conversations: ConversationRepo,
     private mapping: MappingRepo,
-    private appClient: ChatwootAppClient,
+    private appClientFor: AppClientFor,
   ) {}
 
   async handle(accountId: number, evt: ReactionEvent): Promise<void> {
@@ -26,7 +26,8 @@ export class ReactionHandler {
     const reacted = await this.mapping.findByZaloMsgId(accountId, evt.reactedMsgId);
     const who = evt.isSelf ? "Bạn (từ app Zalo)" : (evt.senderName || evt.senderUid);
     const note = `${reactionEmoji(evt.icon)} ${who} đã thả cảm xúc`;
-    await this.appClient.postPrivateNote(conversationId, note, { inReplyTo: reacted?.chatwootMessageId ?? undefined });
+    const appClient = await this.appClientFor(accountId);
+    await appClient.postPrivateNote(conversationId, note, { inReplyTo: reacted?.chatwootMessageId ?? undefined });
   }
 }
 
@@ -36,7 +37,7 @@ export class UndoHandler {
   constructor(
     private conversations: ConversationRepo,
     private mapping: MappingRepo,
-    private appClient: ChatwootAppClient,
+    private appClientFor: AppClientFor,
   ) {}
 
   async handle(accountId: number, evt: UndoEvent): Promise<void> {
@@ -45,6 +46,7 @@ export class UndoHandler {
     if (!mapped?.chatwootMessageId) return; // never relayed → nothing to delete
     const conversationId = await this.conversations.getChatwootId(accountId, sourceIdFor(evt.kind, evt.threadId));
     if (!conversationId) return;
-    await this.appClient.deleteMessage(conversationId, mapped.chatwootMessageId);
+    const appClient = await this.appClientFor(accountId);
+    await appClient.deleteMessage(conversationId, mapped.chatwootMessageId);
   }
 }

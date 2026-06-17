@@ -66,6 +66,8 @@ export interface UndoEvent {
 
 export interface UserProfile { uid: string; displayName: string; avatar?: string; phone?: string; }
 
+export interface GroupProfile { groupId: string; name: string; avatar?: string; }
+
 export interface ZaloCredentials { imei: string; cookie: unknown; userAgent: string; language?: string; }
 
 export type QrEvent =
@@ -80,6 +82,7 @@ export interface ZaloApi {
   sendText(threadId: string, kind: ZaloThreadKind, text: string, quote?: QuoteSource): Promise<{ msgId: string }>;
   sendAttachment(threadId: string, kind: ZaloThreadKind, file: { filename: string; data: Buffer }, caption: string): Promise<{ msgId: string }>;
   getUserInfo(uid: string): Promise<UserProfile>;
+  getGroupInfo(groupId: string): Promise<GroupProfile>;
   onMessage(cb: (msg: IncomingMessage) => void): void;
   onReaction(cb: (evt: ReactionEvent) => void): void;
   onUndo(cb: (evt: UndoEvent) => void): void;

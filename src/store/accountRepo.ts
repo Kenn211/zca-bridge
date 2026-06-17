@@ -11,6 +11,7 @@ export interface ZaloAccount {
   zaloOaId: string | null;
   chatwootInboxIdentifier: string;
   chatwootInboxId: number | null;
+  chatwootAccountId: number | null;
   status: AccountStatus;
   proxyId: number | null;
   proxyPending: boolean;
@@ -24,6 +25,7 @@ interface Row {
   zalo_oa_id: string | null;
   chatwoot_inbox_identifier: string;
   chatwoot_inbox_id: string | null;
+  chatwoot_account_id: string | null;
   status: AccountStatus;
   proxy_id: string | null;
   proxy_pending: boolean;
@@ -38,6 +40,7 @@ export function rowToAccount(r: Row): ZaloAccount {
     zaloOaId: r.zalo_oa_id,
     chatwootInboxIdentifier: r.chatwoot_inbox_identifier,
     chatwootInboxId: r.chatwoot_inbox_id == null ? null : Number(r.chatwoot_inbox_id),
+    chatwootAccountId: r.chatwoot_account_id == null ? null : Number(r.chatwoot_account_id),
     status: r.status,
     proxyId: r.proxy_id == null ? null : Number(r.proxy_id),
     proxyPending: r.proxy_pending,
@@ -52,20 +55,21 @@ export class AccountRepo {
     chatwootInboxIdentifier: string;
     chatwootInboxId?: number;
     proxyId?: number | null;
+    chatwootAccountId?: number | null;
   }): Promise<ZaloAccount> {
     const res = await this.pool.query<Row>(
-      `INSERT INTO zalo_accounts (label, chatwoot_inbox_identifier, chatwoot_inbox_id, proxy_id)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [input.label, input.chatwootInboxIdentifier, input.chatwootInboxId ?? null, input.proxyId ?? null],
+      `INSERT INTO zalo_accounts (label, chatwoot_inbox_identifier, chatwoot_inbox_id, proxy_id, chatwoot_account_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [input.label, input.chatwootInboxIdentifier, input.chatwootInboxId ?? null, input.proxyId ?? null, input.chatwootAccountId ?? null],
     );
     return rowToAccount(res.rows[0]);
   }
 
-  async createOa(input: { label: string; chatwootInboxIdentifier: string; chatwootInboxId?: number }): Promise<ZaloAccount> {
+  async createOa(input: { label: string; chatwootInboxIdentifier: string; chatwootInboxId?: number; chatwootAccountId?: number | null }): Promise<ZaloAccount> {
     const res = await this.pool.query<Row>(
-      `INSERT INTO zalo_accounts (label, type, status, chatwoot_inbox_identifier, chatwoot_inbox_id)
-       VALUES ($1, 'oa', 'pending_qr', $2, $3) RETURNING *`,
-      [input.label, input.chatwootInboxIdentifier, input.chatwootInboxId ?? null],
+      `INSERT INTO zalo_accounts (label, type, status, chatwoot_inbox_identifier, chatwoot_inbox_id, chatwoot_account_id)
+       VALUES ($1, 'oa', 'pending_qr', $2, $3, $4) RETURNING *`,
+      [input.label, input.chatwootInboxIdentifier, input.chatwootInboxId ?? null, input.chatwootAccountId ?? null],
     );
     return rowToAccount(res.rows[0]);
   }
@@ -151,7 +155,7 @@ export class AccountRepo {
 
   async update(
     id: number,
-    patch: { label?: string; chatwootInboxIdentifier?: string; chatwootInboxId?: number | null },
+    patch: { label?: string; chatwootInboxIdentifier?: string; chatwootInboxId?: number | null; chatwootAccountId?: number | null },
   ): Promise<ZaloAccount | null> {
     const sets: string[] = [];
     const vals: unknown[] = [];
@@ -159,6 +163,7 @@ export class AccountRepo {
     if (patch.label !== undefined) { sets.push(`label = $${++i}`); vals.push(patch.label); }
     if (patch.chatwootInboxIdentifier !== undefined) { sets.push(`chatwoot_inbox_identifier = $${++i}`); vals.push(patch.chatwootInboxIdentifier); }
     if (patch.chatwootInboxId !== undefined) { sets.push(`chatwoot_inbox_id = $${++i}`); vals.push(patch.chatwootInboxId); }
+    if (patch.chatwootAccountId !== undefined) { sets.push(`chatwoot_account_id = $${++i}`); vals.push(patch.chatwootAccountId); }
     if (!sets.length) return this.findById(id);
     const res = await this.pool.query<Row>(
       `UPDATE zalo_accounts SET ${sets.join(", ")}, updated_at = now() WHERE id = $1 RETURNING *`,

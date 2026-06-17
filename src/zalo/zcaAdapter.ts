@@ -1,6 +1,6 @@
 import { Zalo, ThreadType } from "zca-js";
 import {
-  ZaloApi, ZaloThreadKind, IncomingMessage, ReactionEvent, UndoEvent, QuoteSource, UserProfile, ZaloCredentials,
+  ZaloApi, ZaloThreadKind, IncomingMessage, ReactionEvent, UndoEvent, QuoteSource, UserProfile, GroupProfile, ZaloCredentials,
   normalizeIncoming, normalizeReaction, normalizeUndo, toZcaThreadType,
 } from "./types.js";
 import { resolveStickerImage } from "./stickerResolver.js";
@@ -49,7 +49,13 @@ export class ZcaAdapter implements ZaloApi {
   async getUserInfo(uid: string): Promise<UserProfile> {
     const res: any = await this.api.getUserInfo(uid);
     const profile = res?.changed_profiles?.[uid] ?? res?.[uid] ?? res ?? {};
-    return { uid, displayName: profile.displayName ?? profile.dName ?? uid, avatar: profile.avatar, phone: profile.phone };
+    return { uid, displayName: profile.zaloName || profile.displayName || profile.dName || uid, avatar: profile.avatar, phone: profile.phone };
+  }
+
+  async getGroupInfo(groupId: string): Promise<GroupProfile> {
+    const res: any = await this.api.getGroupInfo(groupId);
+    const info = res?.gridInfoMap?.[groupId] ?? {};
+    return { groupId, name: info.name ?? groupId, avatar: info.fullAvt ?? info.avt };
   }
 
   onMessage(cb: (msg: IncomingMessage) => void): void {

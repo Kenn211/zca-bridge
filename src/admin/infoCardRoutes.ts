@@ -10,6 +10,7 @@ export function registerInfoCardRoutes(
   app: FastifyInstance,
   infoCard: Pick<InfoCardRepo, "get" | "upsert">,
   guard: Pre,
+  requireWrite: Pre = guard,
 ): void {
   app.get<{ Params: { id: string } }>(
     "/admin/api/accounts/:id/info-card",
@@ -19,7 +20,7 @@ export function registerInfoCardRoutes(
 
   app.put<{ Params: { id: string }; Body: Partial<InfoCardRow> }>(
     "/admin/api/accounts/:id/info-card",
-    { preHandler: guard },
+    { preHandler: requireWrite },
     async (req, reply) => {
       const b = req.body ?? {};
       const title = String(b.title ?? "").trim();

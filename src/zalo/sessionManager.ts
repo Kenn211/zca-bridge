@@ -63,6 +63,10 @@ export class SessionManager {
     return this.require(accountId).getUserInfo(uid);
   }
 
+  async getGroupInfo(accountId: number, groupId: string) {
+    return this.require(accountId).getGroupInfo(groupId);
+  }
+
   /** Stop and forget one account's in-memory runtime (personal adapter and/or OA sender). */
   async remove(accountId: number): Promise<void> {
     const api = this.sessions.get(accountId);

@@ -15,9 +15,12 @@ import { SettingsRepo } from "./store/settingsRepo.js";
 import { AdminUserRepo } from "./store/adminUserRepo.js";
 import { LogsRepo } from "./store/logsRepo.js";
 import { DbLogStream } from "./logging/dbLogStream.js";
+import { loadAlertConfig, buildNotifiers } from "./alerting/config.js";
+import { AlertDispatcher } from "./alerting/dispatcher.js";
+import { AlertStream } from "./alerting/alertStream.js";
 import { ChatwootClient } from "./chatwoot/client.js";
-import { ChatwootAppClient } from "./chatwoot/appClient.js";
-import { ChatwootAdminClient, ChatwootInboxProvisioner } from "./chatwoot/adminClient.js";
+import { makeAppClientFor } from "./chatwoot/appClientFactory.js";
+import { ChatwootAdminClient } from "./chatwoot/adminClient.js";
 import { registerWebhookRoute, OutgoingEvent } from "./chatwoot/webhookServer.js";
 import { registerAdminRoutes, registerAccountDeleteRoute } from "./admin/routes.js";
 import { registerAuthRoutes, makeRequireSession } from "./admin/authRoutes.js";
@@ -43,6 +46,8 @@ import { decryptCredentials, encryptCredentials } from "./crypto/credentials.js"
 import { IncomingMessage, ReactionEvent, UndoEvent } from "./zalo/types.js";
 import { LocalDiskArchive } from "./media/archive.js";
 import { registerMediaRoute } from "./media/mediaRoute.js";
+import { ExtensionRegistry, type ExtensionContext } from "./extension/registry.js";
+import { loadPro } from "./extension/loadPro.js";
 import { OaTokenRepo } from "./store/oaTokenRepo.js";
 import { OaOAuthClient } from "./zalo-oa/oauthClient.js";
 import { OaSender } from "./zalo-oa/sender.js";
@@ -69,22 +74,41 @@ async function main(): Promise<void> {
 
   const pool = createPool(envCfg.databaseUrl);
   const logsRepo = new LogsRepo(pool);
+  const settingsRepo = new SettingsRepo(pool, envCfg.credentialsKey);
+  const alertConfig = await loadAlertConfig(settingsRepo);
+  const alertDispatcher = new AlertDispatcher(buildNotifiers(alertConfig), {
+    cooldownMs: alertConfig.cooldownMs,
+    reconnectingThresholdMs: alertConfig.reconnectingThresholdMs,
+  });
+  const alertStream = new AlertStream(alertDispatcher);
   const dbLogStream = new DbLogStream({
     insert: (rows) => logsRepo.insertMany(rows),
     prune: (keep) => logsRepo.prune(keep),
   });
   const logger = pino(
     { level: "info" },
-    pino.multistream([{ stream: process.stdout }, { stream: dbLogStream }]),
+    pino.multistream([{ stream: process.stdout }, { stream: dbLogStream }, { stream: alertStream }]),
   );
   const app = Fastify({ loggerInstance: logger as unknown as FastifyBaseLogger });
-
-  const settingsRepo = new SettingsRepo(pool, envCfg.credentialsKey);
   const cfg = await resolveSettings(settingsRepo, envCfg, app.log);
+
+  const extensions = new ExtensionRegistry();
+  await loadPro(extensions, undefined, app.log);
+  const extCtx: ExtensionContext = {
+    mediaArchiveRoot: cfg.mediaArchiveRoot,
+    publicBaseUrl: cfg.publicBaseUrl,
+    credentialsKey: cfg.credentialsKey,
+    mediaTokenTtlDays: cfg.mediaTokenTtlDays,
+  };
 
   const sessionSecret = deriveSessionSecret(envCfg.credentialsKey);
   const adminUsers = new AdminUserRepo(pool);
   const guard = makeRequireSession(sessionSecret);
+
+  const adminAuth = extensions.adminAuth?.({ pool, sessionSecret });
+  if (adminAuth) await adminAuth.ensureSchema();
+  // can(key): dưới Pro = requirePermission(key); dưới Free = guard (single-admin toàn quyền).
+  const can = (key: string) => (adminAuth ? adminAuth.requirePermission(key) : guard);
 
   const accounts = new AccountRepo(pool);
   const mapping = new MappingRepo(pool);
@@ -92,15 +116,16 @@ async function main(): Promise<void> {
   const conversations = new ConversationRepo(pool);
   const jobs = new JobQueueRepo(pool);
   const chatwoot = new ChatwootClient(cfg.chatwootBaseUrl);
-  const appClient = new ChatwootAppClient(cfg.chatwootBaseUrl, cfg.chatwootApiAccessToken, cfg.chatwootAccountId);
-  const archive = new LocalDiskArchive(cfg.mediaArchiveRoot, cfg.publicBaseUrl, cfg.credentialsKey, cfg.mediaTokenTtlDays);
+  const appClientFor = makeAppClientFor(cfg.chatwootBaseUrl, cfg.chatwootApiAccessToken, cfg.chatwootAccountId, accounts);
+  const archive = extensions.mediaArchive
+    ? extensions.mediaArchive(extCtx)
+    : new LocalDiskArchive(cfg.mediaArchiveRoot, cfg.publicBaseUrl, cfg.credentialsKey, cfg.mediaTokenTtlDays);
   const webhookUrls = buildWebhookUrls({
     chatwootWebhookBase: cfg.chatwootWebhookBase,
     webhookSecret: cfg.webhookSecret,
     publicBaseUrl: cfg.publicBaseUrl,
   });
-  const chatwootAdmin = new ChatwootAdminClient(cfg.chatwootBaseUrl, cfg.chatwootApiAccessToken, cfg.chatwootAccountId);
-  const inboxProvisioner = new ChatwootInboxProvisioner(chatwootAdmin, webhookUrls.chatwoot);
+  const chatwootAdmin = new ChatwootAdminClient(cfg.chatwootBaseUrl, cfg.chatwootApiAccessToken);
 
   // inbox_id -> identifier index, refreshed from DB
   const inboxIndex = new Map<number, string>();
@@ -127,14 +152,18 @@ async function main(): Promise<void> {
   const enrich = makeEnricher(sessions, chatwoot, (a, u) => (oaProfileRef.resolve ? oaProfileRef.resolve(a, u) : Promise.resolve(null)), app.log);
   const consult = new ConsultationTracker(conversations, async (accountId, sourceId, text) => {
     const convId = await conversations.getChatwootId(accountId, sourceId);
-    if (convId) await appClient.postPrivateNote(convId, text);
+    if (convId) await (await appClientFor(accountId)).postPrivateNote(convId, text);
   });
   const watermarkHook = {
     onRelayed: (accountId: number, timeMs: number) =>
       accounts.advanceWatermark(accountId, timeMs).catch((err) => app.log.warn({ event: "watermark_advance_failed", accountId, err }, "watermark advance failed")),
   };
-  const inbound = new InboundHandler(chatwoot, mapping, conversations, enrich, appClient, archive, cfg.maxAttachmentBytes, app.log, consult, infoRequestHook, watermarkHook);
-  const notifyOutbound = makeOutboundNotifier((id) => inboxIndex.get(id) ?? null, accounts, conversations, appClient, app.log);
+  const inbound = new InboundHandler(
+    chatwoot, mapping, conversations, enrich, appClientFor, archive, cfg.maxAttachmentBytes, app.log,
+    consult, infoRequestHook, watermarkHook,
+    (accountId, groupId) => sessions.getGroupInfo(accountId, groupId).catch(() => null),
+  );
+  const notifyOutbound = makeOutboundNotifier((id) => inboxIndex.get(id) ?? null, accounts, conversations, appClientFor, app.log);
   const outbound = new OutboundHandler(
     sessions, accounts, (id) => inboxIndex.get(id) ?? null, mapping, cfg.chatwootBaseUrl,
     (evt, error) => notifyOutbound(evt, windowNote(evt, error)),
@@ -143,8 +172,8 @@ async function main(): Promise<void> {
     notifyOutbound,
     archive,
   );
-  const reactions = new ReactionHandler(conversations, mapping, appClient);
-  const undos = new UndoHandler(conversations, mapping, appClient);
+  const reactions = new ReactionHandler(conversations, mapping, appClientFor);
+  const undos = new UndoHandler(conversations, mapping, appClientFor);
 
   // Wake the worker the instant a job is enqueued, so processing does not wait for the poll tick.
   let wakeWorker: () => void = () => {};
@@ -193,7 +222,7 @@ async function main(): Promise<void> {
 
   // On permanent failure of an outbound send, alert the agent in-conversation.
   const onPermanentFailure = async (job: Job, error: unknown): Promise<void> => {
-    app.log.error({ kind: job.kind, dedupKey: job.dedupKey, err: error }, "job dead-lettered");
+    app.log.error({ event: "job_dead_lettered", kind: job.kind, dedupKey: job.dedupKey, err: error }, "job dead-lettered");
     if (job.kind !== "outbound") return;
     // The note identifies which message failed and carries the underlying error verbatim, so the
     // agent can tell what broke and how to fix it (not just "check the connection").
@@ -252,16 +281,18 @@ async function main(): Promise<void> {
   app.get("/healthz", async () => ({ ok: true }));
   registerAuthRoutes(app, { users: adminUsers, sessionSecret });
   registerAdminRoutes(app, accounts, qr, guard, {
-    provisioner: inboxProvisioner,
     refreshInboxIndex: refreshIndex,
     applyProxy: async (id) => { await supervisor.remove(id); await supervisor.connect(id); },
+    listChatwootAccounts: () => chatwootAdmin.listAccounts(),
+    requireWrite: can("accounts.write"),
   });
-  registerAccountDeleteRoute(app, accounts, supervisor, refreshIndex, guard);
-  registerSettingsRoutes(app, settingsRepo, guard, requestRestart);
+  registerAccountDeleteRoute(app, accounts, supervisor, refreshIndex, guard, can("accounts.write"));
+  registerSettingsRoutes(app, settingsRepo, guard, requestRestart, can("settings.write"));
   registerLogsRoutes(app, logsRepo, guard);
-  registerInfoCardRoutes(app, infoCard, guard);
-  registerProxyRoutes(app, proxyRepo, accounts, guard);
+  registerInfoCardRoutes(app, infoCard, guard, can("infocard.write"));
+  registerProxyRoutes(app, proxyRepo, accounts, guard, can("proxy.write"));
   registerWebhookInfoRoutes(app, webhookUrls, guard);
+  if (adminAuth) await adminAuth.registerRoutes(app);
   app.addHook("onReady", refreshIndex);
 
   if (cfg.oa) {
