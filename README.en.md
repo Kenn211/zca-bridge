@@ -52,8 +52,13 @@ The **Zalo Official Account (OA)** channel uses Zalo's official API and is not s
   (5s → 5 min). If the session truly expires, the account switches to a state that needs a fresh QR scan.
 - Per-account egress proxy for personal accounts (HTTP, HTTPS, SOCKS5, optional user/password) to
   isolate each account's outbound IP.
-- Admin dashboard at `/admin/` for first-run admin setup, Chatwoot/OA settings, account management,
-  proxy management, QR login, webhook URLs, log export, and dismissing handled warnings.
+- Operational alerting over Telegram and/or a webhook when a personal account loses login, stays
+  stuck reconnecting past a threshold, or a job is dead-lettered, with a per-alert cooldown.
+- Per-account Chatwoot account id override that supersedes the default account id during inbox
+  auto-provisioning.
+- Admin dashboard at `/admin/` for first-run admin setup, Chatwoot/OA settings, alert configuration,
+  account management, proxy management, QR login, webhook URLs, log export, and dismissing handled
+  warnings.
 
 ## Screenshots
 
@@ -87,6 +92,7 @@ secrets.
 - `src/handlers` — inbound/outbound orchestration, failure notes, contact-info sync.
 - `src/worker` and `src/store` — durable queue, repositories (including proxies), migrations.
 - `src/admin` — admin API, login, settings, webhook info, proxy CRUD, log dashboard.
+- `src/alerting` — collects account-status/dead-letter signals and pushes alerts to Telegram/webhook.
 - `src/media` — archive and tokenized media serving.
 
 ## Requirements
@@ -182,16 +188,19 @@ npm run dev
 1. Open `PUBLIC_BASE_URL/admin/` or `http://localhost:4000/admin/`.
 2. Create the first admin user. Passwords must be at least 8 characters.
 3. In Settings, verify `CHATWOOT_BASE_URL`, Chatwoot account id/token, and OA settings if used.
-4. (Optional) Open the **Proxy** tab to register proxies if you want to route personal accounts
+4. (Optional) In Settings, enable Telegram and/or webhook **alerts** to receive operational
+   notifications (see [Operational Alerts](#operational-alerts)).
+5. (Optional) Open the **Proxy** tab to register proxies if you want to route personal accounts
    through dedicated IPs (see [Proxy and Auto-Reconnect](#proxy-and-auto-reconnect)).
-5. Create a bridge account:
-   - Personal Zalo: add an account, create or attach a Chatwoot inbox, pick a proxy (if any), start
-     login, and scan the QR.
+6. Create a bridge account:
+   - Personal Zalo: add an account, create or attach a Chatwoot inbox, pick a proxy (if any),
+     optionally set a per-account Chatwoot account id (leave blank to use the default), start login,
+     and scan the QR.
    - Zalo OA: add an OA account, connect OA, and complete OAuth.
-6. Copy webhook URLs from the admin dashboard:
+7. Copy webhook URLs from the admin dashboard:
    - Chatwoot webhook: configure it on the matching Chatwoot inbox.
    - Zalo OA webhook: configure it in the Zalo developer console when OA is enabled.
-7. Send one inbound and one outbound test message to confirm mapping and echo suppression.
+8. Send one inbound and one outbound test message to confirm mapping and echo suppression.
 
 ## Proxy and Auto-Reconnect
 
@@ -215,6 +224,22 @@ requires a manual **QR rescan**.
 warnings so they no longer appear in the summary. The **Logs** tab still supports filtering, copying,
 and JSON export for debugging.
 
+## Operational Alerts
+
+Beyond the in-dashboard logs, the bridge can actively push alerts out over **Telegram** and/or a
+**webhook**. Enable and configure them in the admin **Settings** tab (not via environment variables);
+the Telegram bot token is encrypted at rest like other secrets.
+
+The bridge alerts on:
+
+- **Lost login** — a personal account's session truly expired and needs a **QR rescan**.
+- **Stuck reconnecting** — a personal account stays in the reconnecting state longer than
+  `alert_reconnecting_threshold_sec` (default 300 seconds).
+- **Dead-lettered job** — a job failed permanently and was moved to the dead-letter queue.
+
+Each alert kind has an `alert_cooldown_sec` cooldown (default 600 seconds) to avoid spam on repeated
+incidents. The webhook receives a JSON payload describing the event; Telegram receives a text message.
+
 ## Tests
 
 ```bash
@@ -225,8 +250,8 @@ The test suite uses Vitest. If tests involving `sharp` fail to load the module, 
 native/optional dependencies are installed for the current platform, then rerun tests.
 
 Some repository tests require `TEST_DATABASE_URL`; without it, those tests are intentionally skipped.
-Latest local check on the current code: 71 test files passed, 7 test files were intentionally skipped;
-440 tests passed, 29 tests skipped. See [ROADMAP.md](ROADMAP.md) for the maintainer roadmap.
+Latest local check on the current code: 70 test files passed, 7 test files were intentionally skipped;
+426 tests passed, 29 tests skipped. See [ROADMAP.md](ROADMAP.md) for the maintainer roadmap.
 
 ## How Codex Is Used
 

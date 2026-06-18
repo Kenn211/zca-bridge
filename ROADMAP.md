@@ -11,6 +11,10 @@ This roadmap reflects the maintainer's current intent and is not a release commi
   Zalo/OA account management, webhook URL helper, and account deletion.
 - Zalo OA includes OAuth, webhook verification, token refresh, backfill, image/file sending, large
   image compression, and selected customer-info request flows.
+- Personal accounts have per-account proxies, an auto-reconnect supervisor with exponential backoff,
+  and a per-account Chatwoot account id override.
+- Basic operational alerting over Telegram/webhook (lost login, stuck reconnecting, dead-lettered
+  jobs) is present in the codebase.
 - Media archive, tokenized media links, durable queueing, and dead-letter handling are present in the
   codebase.
 
@@ -34,18 +38,17 @@ This roadmap reflects the maintainer's current intent and is not a release commi
 
 - Expand Zalo OA parity if the official API supports more reaction/recall or equivalent metadata.
 - Harden production operations: migration strategy, backup/restore drills, metrics dashboard, and
-  alerts.
+  richer alerting.
 - Run periodic security reviews for tokens, webhooks, media links, and admin sessions.
 
 ## Test Status
 
-Latest local check after `npm ci` on Node 24.16.0 on 2026-06-08:
+Latest local check on the v1.0.4 code on 2026-06-17:
 
-- 67 test files passed.
-- 5 test files were intentionally skipped because they require `TEST_DATABASE_URL`.
-- 399 tests passed, 20 tests skipped.
+- 70 test files passed.
+- 7 test files were intentionally skipped because they require `TEST_DATABASE_URL`.
+- 426 tests passed, 29 tests skipped.
 - `npm run build` passed.
-- `npm audit` reported 0 vulnerabilities.
 
 The previous local `sharp` load error was resolved by reinstalling dependencies with `npm ci`.
 
