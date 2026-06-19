@@ -48,8 +48,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     credentialsKey: Buffer.from(keyHex, "hex"),
     port: Number(env.PORT ?? "4000"),
     publicBaseUrl: (env.PUBLIC_BASE_URL ?? `http://localhost:${env.PORT ?? "4000"}`).replace(/\/$/, ""),
-    chatwootApiAccessToken: env.CHATWOOT_API_ACCESS_TOKEN ?? null,
-    chatwootAccountId: env.CHATWOOT_ACCOUNT_ID ? Number(env.CHATWOOT_ACCOUNT_ID) : null,
+    // Token & account id are operator-managed via Admin → Cấu hình and stored in the
+    // settings DB (merged in resolveSettings). They are intentionally NOT read from env,
+    // so the operator manages them in one place.
+    chatwootApiAccessToken: null,
+    chatwootAccountId: null,
     webhookSecret: env.WEBHOOK_SECRET ?? null,
     chatwootWebhookBase: (env.CHATWOOT_WEBHOOK_BASE ?? "http://zca-bridge:4000").replace(/\/$/, ""),
     mediaArchiveRoot: env.MEDIA_ARCHIVE_ROOT ?? "/archive",

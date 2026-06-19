@@ -82,6 +82,17 @@ async function logout() {
   location.reload();
 }
 
+async function checkChatwootToken() {
+  const el = $("chatwootTokenBanner");
+  if (!el) return;
+  const { status, body } = await api("/admin/api/chatwoot/status");
+  const configured = status === 200 && body && body.tokenConfigured === true;
+  if (configured) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.innerHTML = '<span>⚠️ Chưa cấu hình Chatwoot API token — note/reaction/self-capture & cảnh báo lỗi sẽ không hoạt động.</span>' +
+    '<button class="button" type="button" onclick="setTab(\'settings\')">Vào Cấu hình</button>';
+  el.classList.remove("hidden");
+}
+
 function showDash() {
   show("dash", true);
   show("logoutBtn", true);
@@ -90,6 +101,7 @@ function showDash() {
   setTab("accounts");
   loadAccounts();
   loadLogs({ quiet: true });
+  checkChatwootToken();
 }
 
 async function loadWebhooks() {

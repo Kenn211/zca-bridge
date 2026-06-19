@@ -10,6 +10,9 @@ export interface AdminRouteOptions {
   applyProxy?: (accountId: number) => Promise<void>;
   requireWrite?: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   listChatwootAccounts?: () => Promise<{ id: number; name: string }[]>;
+  // Whether a Chatwoot Application-API token is configured (from Settings DB).
+  // Drives the admin UI's "token not configured" banner.
+  chatwootTokenConfigured?: boolean;
 }
 
 type AccountCreateBody = {
@@ -120,6 +123,10 @@ export function registerAdminRoutes(
     } catch {
       return reply.code(502).send({ ok: false, error: "chatwoot_accounts_list_failed" });
     }
+  });
+
+  app.get("/admin/api/chatwoot/status", { preHandler: guard }, async () => {
+    return { tokenConfigured: !!opts.chatwootTokenConfigured };
   });
 
   app.post<{ Body: AccountCreateBody }>(

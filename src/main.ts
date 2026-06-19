@@ -285,6 +285,7 @@ async function main(): Promise<void> {
     applyProxy: async (id) => { await supervisor.remove(id); await supervisor.connect(id); },
     listChatwootAccounts: () => chatwootAdmin.listAccounts(),
     requireWrite: can("accounts.write"),
+    chatwootTokenConfigured: cfg.chatwootApiAccessToken != null,
   });
   registerAccountDeleteRoute(app, accounts, supervisor, refreshIndex, guard, can("accounts.write"));
   registerSettingsRoutes(app, settingsRepo, guard, requestRestart, can("settings.write"));
